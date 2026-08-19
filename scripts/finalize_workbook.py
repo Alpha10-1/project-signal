@@ -1,10 +1,28 @@
 """Apply professional formatting to the cleaned Project Signal workbook and
 add a cover / README sheet and a data-quality summary sheet."""
 import sys
+import math
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+
+def wilson_interval(flagged, total, z=1.96):
+    """Wilson score confidence interval on the true proportion of records
+    with at least one detectable issue. Used to turn 'X% of records were
+    flagged' into an honest statement about the uncertainty of that rate,
+    rather than presenting the sample rate as if it were exact.
+    """
+    if total == 0:
+        return (0.0, 0.0, 0.0)
+    p = flagged / total
+    denom = 1 + z ** 2 / total
+    centre = p + z ** 2 / (2 * total)
+    margin = z * math.sqrt((p * (1 - p) + z ** 2 / (4 * total)) / total)
+    lo = max(0.0, (centre - margin) / denom)
+    hi = min(1.0, (centre + margin) / denom)
+    return (p, lo, hi)
 
 HEADER_FILL = PatternFill(start_color='1F4E5F', end_color='1F4E5F', fill_type='solid')
 HEADER_FONT = Font(name='Arial', size=10, bold=True, color='FFFFFF')
@@ -36,7 +54,7 @@ def style_data_sheet(ws):
     ws.auto_filter.ref = ws.dimensions
 
 
-def add_cover_sheet(wb, exception_df, sheets_order):
+def add_cover_sheet(wb, exception_df, sheets_order, run_info=None, total_records=None):
     ws = wb.create_sheet('README', 0)
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['A'].width = 100
@@ -45,6 +63,24 @@ def add_cover_sheet(wb, exception_df, sheets_order):
     r += 2
     ws.cell(row=r, column=1, value='Cleaned dataset, exception log and reconciliation audit trail').font = SUBTITLE_FONT
     r += 2
+
+    if run_info is not None:
+        info = dict(zip(run_info['Field'], run_info['Value']))
+        ws.cell(row=r, column=1,
+                value=f"Cleaning_Version {info.get('Cleaning_Version', '?')}  |  "
+                      f"Run {info.get('Run_Timestamp_UTC', '?')} UTC  |  "
+                      f"Input SHA256 {str(info.get('Input_SHA256', '?'))[:12]}…").font = BODY_FONT
+        r += 1
+        if total_records:
+            flagged = exception_df.groupby(['Sheet', 'Record_ID']).ngroups
+            p, lo, hi = wilson_interval(flagged, total_records)
+            ws.cell(row=r, column=1,
+                    value=f"Observed flagged-record rate: {p*100:.1f}% "
+                          f"(95% confidence interval {lo*100:.1f}%–{hi*100:.1f}% of {total_records} records). "
+                          f"This bounds the *detected* issue rate; it is not a guarantee that undetected "
+                          f"errors do not remain outside the rule-set below.").font = BODY_FONT
+            r += 1
+        r += 1
     lines = [
         'How this workbook is organised:',
         '  - "<Sheet>_RAW" tabs: the original data, completely unmodified, one per source sheet.',
@@ -115,11 +151,20 @@ def main(inpath, outpath):
     wb = load_workbook(inpath)
     exception_df = pd.read_excel(inpath, sheet_name='Exception_Log')
 
+    run_info = None
+    total_records = None
+    if 'Run_Info' in wb.sheetnames:
+        run_info = pd.read_excel(inpath, sheet_name='Run_Info')
+        try:
+            total_records = int(run_info.set_index('Field').loc['Total_Raw_Records', 'Value'])
+        except Exception:
+            total_records = None
+
     for ws_name in wb.sheetnames:
         style_data_sheet(wb[ws_name])
 
     add_summary_sheet(wb, exception_df)
-    add_cover_sheet(wb, exception_df, wb.sheetnames)
+    add_cover_sheet(wb, exception_df, wb.sheetnames, run_info=run_info, total_records=total_records)
 
     wb.save(outpath)
     print('Saved', outpath)

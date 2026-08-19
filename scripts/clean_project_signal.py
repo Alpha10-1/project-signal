@@ -18,10 +18,16 @@ Reads the raw workbook, and for every operational sheet:
 Run: python3 clean_project_signal.py <input.xlsx> <output.xlsx>
 """
 import sys
+import hashlib
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from common import parse_dt, normalize_equipment, EQUIPMENT_DISPLAY
+
+# Bump this whenever a cleaning rule changes. Written into the output
+# workbook's Run_Info sheet so any downstream file (dashboard, report,
+# triage export) can be traced back to the exact rule-set that produced it.
+CLEANING_VERSION = '1.1.0'
 
 EXCEPTION_CODES = {
     'DUP': 'Exact duplicate of another record (removed from cleaned copy)',
@@ -437,7 +443,18 @@ def build_flag_summary_column(cleaned, exlog):
     return cleaned
 
 
+def _file_hash(path, algo='sha256'):
+    h = hashlib.new(algo)
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def main(inpath, outpath):
+    run_timestamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    input_hash = _file_hash(inpath)
+
     raw = load_raw(inpath)
     exlog = {}
     cleaned, removed_rows = {}, {}
@@ -463,6 +480,19 @@ def main(inpath, outpath):
             dup_rows.append(rdf)
     dup_df = pd.concat(dup_rows, ignore_index=True) if dup_rows else pd.DataFrame()
 
+    # Reproducibility / lineage record: which rule-set, when, and against
+    # which exact input file this cleaned output was produced.
+    sheet_counts = [{'Sheet': sheet, 'Record_Count': len(df)} for sheet, df in raw.items()]
+    run_info = pd.DataFrame(
+        [{'Field': 'Cleaning_Version', 'Value': CLEANING_VERSION},
+         {'Field': 'Run_Timestamp_UTC', 'Value': run_timestamp},
+         {'Field': 'Input_File', 'Value': inpath},
+         {'Field': 'Input_SHA256', 'Value': input_hash},
+         {'Field': 'Total_Sheets', 'Value': len(raw)},
+         {'Field': 'Total_Raw_Records', 'Value': sum(len(df) for df in raw.values())},
+         {'Field': 'Total_Exceptions_Logged', 'Value': len(exception_df)}]
+    )
+
     with pd.ExcelWriter(outpath, engine='openpyxl') as writer:
         for sheet, df in raw.items():
             df.to_excel(writer, sheet_name=f'{sheet[:22]}_RAW', index=False)
@@ -470,8 +500,11 @@ def main(inpath, outpath):
             df.to_excel(writer, sheet_name=f'{sheet[:22]}_Clean', index=False)
         exception_df.to_excel(writer, sheet_name='Exception_Log', index=False)
         dup_df.to_excel(writer, sheet_name='Duplicates_Removed', index=False)
+        run_info.to_excel(writer, sheet_name='Run_Info', index=False)
+        pd.DataFrame(sheet_counts).to_excel(writer, sheet_name='Sheet_Record_Counts', index=False)
 
     print(f'Wrote {outpath}')
+    print(f'Cleaning_Version={CLEANING_VERSION}  Run_Timestamp_UTC={run_timestamp}  Input_SHA256={input_hash[:12]}...')
     print(f'Total exceptions logged: {len(exception_df)}')
     print(exception_df['Code'].value_counts())
     print()
