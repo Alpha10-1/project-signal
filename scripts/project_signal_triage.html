@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Project Signal — Data Quality Triage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#12161A;
+  --panel:#181F25;
+  --panel2:#1F2830;
+  --line:#2B3540;
+  --line-soft:#232C34;
+  --text:#E7ECEF;
+  --muted:#8CA0AC;
+  --dim:#5C6D78;
+  --amber:#F0A83C;
+  --amber-dim:#4A3A20;
+  --teal:#3FB8B0;
+  --red:#E85C4A;
+  --red-dim:#432420;
+  --green:#59B37B;
+  --violet:#9C8CE0;
+  --blue:#5B9BD5;
+  --radius:3px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;}
+body{min-height:100vh;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+.disp{font-family:'Space Grotesk',sans-serif;}
+
+::selection{background:var(--amber);color:#12161A;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-track{background:var(--panel);}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+/* ---------- shell ---------- */
+.shell{max-width:1280px;margin:0 auto;padding:0 24px 64px;}
+
+/* ---------- header ---------- */
+header.top{
+  border-bottom:1px solid var(--line);
+  padding:22px 0 18px;
+  display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;
+}
+.eyebrow{
+  font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--amber);
+  text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px;
+}
+.eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);}
+h1.title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:28px;letter-spacing:-.01em;}
+.subtitle{color:var(--muted);font-size:13px;margin-top:4px;max-width:560px;line-height:1.5;}
+.headright{text-align:right;}
+.headright .num{font-family:'Space Grotesk';font-size:34px;font-weight:700;color:var(--amber);line-height:1;}
+.headright .lbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-top:4px;}
+
+/* signal rail */
+.rail{display:flex;gap:2px;margin-top:16px;height:22px;align-items:flex-end;overflow:hidden;}
+.rail .tick{flex:1;min-width:2px;border-radius:1px 1px 0 0;opacity:.85;transition:opacity .15s;}
+.rail .tick:hover{opacity:1;}
+
+/* ---------- stat cards ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0;}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr);}}
+.stat{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;position:relative;overflow:hidden;
+}
+.stat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,var(--teal));}
+.stat .v{font-family:'Space Grotesk';font-size:24px;font-weight:700;}
+.stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+.stat .sub{font-size:11px;color:var(--dim);margin-top:6px;}
+
+/* ---------- controls ---------- */
+.controls{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:12px 14px;margin-bottom:14px;
+}
+.controls select, .controls input[type=text]{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-family:'IBM Plex Mono',monospace;font-size:12px;padding:7px 10px;border-radius:var(--radius);
+  outline:none;
+}
+.controls select:focus, .controls input:focus{border-color:var(--amber);}
+.controls input[type=text]{flex:1;min-width:160px;}
+.controls .lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-right:-4px;}
+.btn{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-family:'IBM Plex Mono',monospace;font-size:12px;padding:7px 12px;border-radius:var(--radius);
+  cursor:pointer;transition:.15s;
+}
+.btn:hover{border-color:var(--amber);color:var(--amber);}
+.btn.primary{background:var(--amber);color:#1a1400;border-color:var(--amber);font-weight:600;}
+.btn.primary:hover{filter:brightness(1.1);color:#1a1400;}
+.spacer{flex:1;}
+
+/* ---------- legend ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.legend .chip{
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:4px 9px;border-radius:20px;
+  border:1px solid var(--line);cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:6px;
+  transition:.15s;user-select:none;
+}
+.legend .chip .sw{width:7px;height:7px;border-radius:50%;}
+.legend .chip.active{border-color:currentColor;background:var(--panel2);}
+
+/* ---------- table ---------- */
+.list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--panel);}
+.row{
+  display:grid;
+  grid-template-columns:120px 100px 130px 1fr 150px;
+  gap:14px;padding:12px 16px;border-bottom:1px solid var(--line-soft);
+  align-items:start;cursor:pointer;transition:background .1s;
+}
+.row:last-child{border-bottom:none;}
+.row:hover{background:var(--panel2);}
+.row.expanded{background:var(--panel2);}
+@media(max-width:900px){.row{grid-template-columns:1fr;gap:6px;}}
+.cell-sheet{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--teal);}
+.cell-id{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--muted);}
+.code-pill{
+  font-family:'IBM Plex Mono';font-size:10px;font-weight:600;padding:3px 8px;border-radius:3px;
+  display:inline-block;letter-spacing:.02em;white-space:nowrap;
+}
+.cell-issue{font-size:12.5px;color:var(--text);line-height:1.4;}
+.cell-issue .detail{color:var(--muted);font-size:11.5px;margin-top:3px;}
+.cell-status{text-align:right;}
+.status-pill{
+  font-family:'IBM Plex Mono';font-size:10px;padding:3px 9px;border-radius:20px;display:inline-block;
+  border:1px solid var(--line);
+}
+.detail-panel{
+  grid-column:1/-1;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;margin-top:10px;display:none;
+}
+.detail-panel.open{display:block;}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:700px){.detail-grid{grid-template-columns:1fr;}}
+.field-lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;}
+.detail-panel select, .detail-panel textarea, .detail-panel input{
+  width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-family:'Inter';font-size:12.5px;padding:8px 10px;border-radius:var(--radius);outline:none;
+}
+.detail-panel select:focus, .detail-panel textarea:focus, .detail-panel input:focus{border-color:var(--amber);}
+.detail-panel textarea{resize:vertical;min-height:56px;font-family:'Inter';}
+.detail-actions{display:flex;justify-content:space-between;align-items:center;margin-top:12px;}
+.saved-tag{font-size:10.5px;color:var(--green);font-family:'IBM Plex Mono';opacity:0;transition:opacity .3s;}
+.saved-tag.show{opacity:1;}
+
+.empty{padding:40px;text-align:center;color:var(--dim);font-size:13px;}
+
+footer.note{margin-top:24px;padding-top:16px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.6;}
+footer.note b{color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div>
+      <div class="eyebrow"><span class="dot"></span>PROJECT SIGNAL · TASK 2</div>
+      <h1 class="title">Data Quality Triage</h1>
+      <div class="subtitle">Every exception raised during cleaning, in one queue. Review, annotate, and clear each flag before the record feeds any downstream tool.</div>
+    </div>
+    <div class="headright">
+      <div class="num" id="hdrTotal">—</div>
+      <div class="lbl">flagged issues</div>
+    </div>
+  </header>
+
+  <div class="rail" id="rail"></div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <span class="lbl">Filter</span>
+    <select id="fSheet"></select>
+    <select id="fCode"></select>
+    <select id="fStatus"></select>
+    <input type="text" id="fSearch" placeholder="Search record ID or text…">
+    <div class="spacer"></div>
+    <button class="btn" id="btnExport">Export CSV</button>
+    <button class="btn" id="btnReset">Reset filters</button>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="list" id="list"></div>
+
+  <footer class="note">
+    <b>How this queue works —</b> statuses are stored per record+code and saved automatically as you triage.
+    Nothing here is deleted from the source workbook: triage decisions are an overlay, not a rewrite of the audit trail.
+    <b>Escalate</b> is reserved for issues a human data owner must resolve (PII exposure, cross-record identity conflicts, anything with legal or safety weight) — this tool does not auto-resolve those categories.
+  </footer>
+</div>
+
+<script id="triage-data" type="application/json">
+{"exceptions":[{"Sheet":"Access_Control","Record_ID":"ACC0010","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Access_Control","Record_ID":"ACC0018","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Employee_ID=OP9999 does not match the established ID OP1003 used elsewhere for [NAME REDACTED]"},{"Sheet":"Access_Control","Record_ID":"ACC0026","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Badge_ID is blank"},{"Sheet":"Access_Control","Record_ID":"ACC0034","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Event_Time year=2027, outside the 2026 operational window used by every other record"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0001","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0004","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0005","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Delays_Downtime","Record_ID":"DLY0005","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0006","Code":"NEG_DURATION","Issue":"Duration/downtime value is negative","Detail":"Duration=-45.0 minutes"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0006","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Stated Duration=-45.0 min does not match End-Start=60 min"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0009","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Stated Duration=90.0 min does not match End-Start=-30 min"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0010","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0014","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0015","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Delay_Category='Mecanical' -> 'Mechanical'"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0016","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0018","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0021","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Duration is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0023","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0027","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0029","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0031","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Duration=14400.0 minutes (implausibly long single delay)"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0031","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Stated Duration=14400.0 min does not match End-Start=60 min"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0032","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0034","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0035","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Delays_Downtime","Record_ID":"DLY0037","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Approved_By is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0004","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0007","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Environmental_Readings","Record_ID":"ENV0009","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Reading_Type=Rainfall recorded in Unit='ppm', expected 'mm'"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0012","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0013","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0016","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Rainfall=-25.0 (negative rainfall is physically impossible)"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0017","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0018","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0019","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0022","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Dust=9999.0 mg/m3 (~1000x the rest of the readings; likely sensor fault or sentinel value)"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0022","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0026","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0029","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0031","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0034","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0036","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0043","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0044","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Environmental_Readings","Record_ID":"ENV0045","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Quality_Flag is blank"},{"Sheet":"Equipment_Events","Record_ID":"EVT0005","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0010","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Equipment_Events","Record_ID":"EVT0010","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0012","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Meter_Reading=999999.0 (sentinel/placeholder value)"},{"Sheet":"Equipment_Events","Record_ID":"EVT0015","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0018","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Event_Type='Strat' -> 'Start'"},{"Sheet":"Equipment_Events","Record_ID":"EVT0020","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0023","Code":"SEQ_CONTRADICTION","Issue":"Value contradicts the logical order of related timestamps","Detail":"Event_Time 2026-07-01 09:00:00 is earlier than EVT0017's 2026-07-04 19:00:00 for the same asset, despite a later Event_ID"},{"Sheet":"Equipment_Events","Record_ID":"EVT0025","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0030","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0035","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0040","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Equipment_Events","Record_ID":"EVT0045","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Meter_Unit='mins' but reading pattern matches the hours-scale sequence for this asset"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0007","Code":"NEG_DURATION","Issue":"Duration/downtime value is negative","Detail":"Downtime_Hours=-4"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0008","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0009","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0010","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0011","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0012","Code":"SEQ_CONTRADICTION","Issue":"Value contradicts the logical order of related timestamps","Detail":"Actual_Start 2026-07-01 18:00:00 is earlier than Raised_Date 2026-07-04 18:00:00"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0015","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0019","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0020","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0023","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0024","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0025","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0029","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0029","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Downtime_Hours=18 recorded but Actual_End is blank - cannot reconcile"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0031","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0033","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Maintenance_Notifications","Record_ID":"MNT0044","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Priority='Urgent' is not a controlled P1/P2/P3 value - mapped to P1 pending confirmation"},{"Sheet":"Operator_Activities","Record_ID":"ACT0003","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0008","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0008","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Operator_ID blank; recoverable from Operator_Name=[NAME REDACTED] -> OP1001"},{"Sheet":"Operator_Activities","Record_ID":"ACT0010","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0011","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0012","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Operator_Activities","Record_ID":"ACT0012","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0020","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Quantity=450 (~10x the typical range of 2-10)"},{"Sheet":"Operator_Activities","Record_ID":"ACT0022","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0029","Code":"EQUIP_UNKNOWN","Issue":"Equipment code not in the recognised 6-asset master list","Detail":"Equipment_Name=TRK099"},{"Sheet":"Operator_Activities","Record_ID":"ACT0032","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Operator_Activities","Record_ID":"ACT0045","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Activity_Type='hualing' -> 'Hauling'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0001","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0004","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Safety_Observations","Record_ID":"SAF0004","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0004","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0006","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0006","Code":"SEQ_CONTRADICTION","Issue":"Value contradicts the logical order of related timestamps","Detail":"Closed_Date 2026-07-01 12:00:00 is earlier than Observation_Date 2026-07-03 12:00:00"},{"Sheet":"Safety_Observations","Record_ID":"SAF0007","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0010","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0011","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0013","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0018","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0024","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0025","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0026","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0026","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0027","Code":"PII","Issue":"Field contains a direct personal identifier","Detail":"Free-text Description names an identified individual (OP1004) alongside an unproven allegation - requires review before wider distribution"},{"Sheet":"Safety_Observations","Record_ID":"SAF0029","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Safety_Observations","Record_ID":"SAF0031","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0037","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Category='Saftey' -> 'Safety'"},{"Sheet":"Safety_Observations","Record_ID":"SAF0038","Code":"MISSING","Issue":"Required field missing / blank","Detail":"Description is blank"},{"Sheet":"Shift_Performance","Record_ID":"SHF0005","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Actual_Hours=26 vs Scheduled_Hours=12"},{"Sheet":"Shift_Performance","Record_ID":"SHF0008","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Shift_Performance","Record_ID":"SHF0014","Code":"NEG_DURATION","Issue":"Duration/downtime value is negative","Detail":"Loads=-3 (negative output count)"},{"Sheet":"Shift_Performance","Record_ID":"SHF0019","Code":"CROSS_RECORD_CONFLICT","Issue":"Record conflicts with a related record elsewhere in the workbook","Detail":"Fuel_Used=0 but Loads=20 (equipment produced output with no recorded fuel use)"},{"Sheet":"Shift_Performance","Record_ID":"SHF0025","Code":"UNIT_MISMATCH","Issue":"Recorded unit is inconsistent with the value pattern for that field","Detail":"Fuel_Unit='gallons' while the rest of the sheet uses litres"},{"Sheet":"Shift_Performance","Record_ID":"SHF0033","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Availability_Pct=1.35 (expected 0.0-1.0)"},{"Sheet":"Training_Records","Record_ID":"TRN0006","Code":"DUP","Issue":"Exact duplicate of another record (removed from cleaned copy)","Detail":null},{"Sheet":"Training_Records","Record_ID":"TRN0008","Code":"SEQ_CONTRADICTION","Issue":"Value contradicts the logical order of related timestamps","Detail":"Expiry_Date 2025-04-11 00:00:00 is earlier than Completion_Date 2025-05-01 00:00:00"},{"Sheet":"Training_Records","Record_ID":"TRN0023","Code":"OUTLIER","Issue":"Value is a statistical/physical outlier vs. the rest of the field","Detail":"Score=145 (expected 0-100)"},{"Sheet":"Training_Records","Record_ID":"TRN0031","Code":"BAD_CATEGORY","Issue":"Category/label value is a misspelling or non-standard variant","Detail":"Course_Code='SAFE-1' -> 'SAFE01'"}],"summary":[{"Sheet":"Access_Control","BAD_CATEGORY":0,"CROSS_RECORD_CONFLICT":1,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":1,"NEG_DURATION":0,"OUTLIER":1,"PII":0,"SEQ_CONTRADICTION":0,"UNIT_MISMATCH":0,"Total":4},{"Sheet":"Delays_Downtime","BAD_CATEGORY":1,"CROSS_RECORD_CONFLICT":3,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":15,"NEG_DURATION":1,"OUTLIER":1,"PII":0,"SEQ_CONTRADICTION":0,"UNIT_MISMATCH":0,"Total":22},{"Sheet":"Environmental_Readings","BAD_CATEGORY":0,"CROSS_RECORD_CONFLICT":0,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":15,"NEG_DURATION":0,"OUTLIER":2,"PII":0,"SEQ_CONTRADICTION":0,"UNIT_MISMATCH":1,"Total":19},{"Sheet":"Equipment_Events","BAD_CATEGORY":1,"CROSS_RECORD_CONFLICT":0,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":0,"NEG_DURATION":0,"OUTLIER":1,"PII":0,"SEQ_CONTRADICTION":1,"UNIT_MISMATCH":9,"Total":13},{"Sheet":"Maintenance_Notifications","BAD_CATEGORY":13,"CROSS_RECORD_CONFLICT":1,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":0,"NEG_DURATION":1,"OUTLIER":0,"PII":0,"SEQ_CONTRADICTION":1,"UNIT_MISMATCH":0,"Total":17},{"Sheet":"Operator_Activities","BAD_CATEGORY":8,"CROSS_RECORD_CONFLICT":0,"DUP":1,"EQUIP_UNKNOWN":1,"MISSING":1,"NEG_DURATION":0,"OUTLIER":1,"PII":0,"SEQ_CONTRADICTION":0,"UNIT_MISMATCH":0,"Total":12},{"Sheet":"Safety_Observations","BAD_CATEGORY":8,"CROSS_RECORD_CONFLICT":0,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":9,"NEG_DURATION":0,"OUTLIER":0,"PII":1,"SEQ_CONTRADICTION":1,"UNIT_MISMATCH":0,"Total":20},{"Sheet":"Shift_Performance","BAD_CATEGORY":0,"CROSS_RECORD_CONFLICT":1,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":0,"NEG_DURATION":1,"OUTLIER":2,"PII":0,"SEQ_CONTRADICTION":0,"UNIT_MISMATCH":1,"Total":6},{"Sheet":"Training_Records","BAD_CATEGORY":1,"CROSS_RECORD_CONFLICT":0,"DUP":1,"EQUIP_UNKNOWN":0,"MISSING":0,"NEG_DURATION":0,"OUTLIER":1,"PII":0,"SEQ_CONTRADICTION":1,"UNIT_MISMATCH":0,"Total":4},{"Sheet":"TOTAL","BAD_CATEGORY":32,"CROSS_RECORD_CONFLICT":6,"DUP":9,"EQUIP_UNKNOWN":1,"MISSING":41,"NEG_DURATION":3,"OUTLIER":9,"PII":1,"SEQ_CONTRADICTION":4,"UNIT_MISMATCH":11,"Total":117}]}
+</script>
+<script>
+(function(){
+  const RAW = JSON.parse(document.getElementById('triage-data').textContent);
+  const EXC = RAW.exceptions; // {Sheet, Record_ID, Code, Issue, Detail}
+  const SUMMARY = RAW.summary;
+
+  const CODE_META = {
+    DUP: {label:'Duplicate', color:'#8CA0AC'},
+    MISSING: {label:'Missing', color:'#5B9BD5'},
+    EQUIP_UNKNOWN: {label:'Unknown equipment', color:'#5B9BD5'},
+    DATE_UNPARSED: {label:'Unparsed date', color:'#F0A83C'},
+    NEG_DURATION: {label:'Negative duration', color:'#E85C4A'},
+    OUTLIER: {label:'Outlier', color:'#F0A83C'},
+    UNIT_MISMATCH: {label:'Unit mismatch', color:'#F0A83C'},
+    BAD_CATEGORY: {label:'Bad category', color:'#9C8CE0'},
+    SEQ_CONTRADICTION: {label:'Sequence contradiction', color:'#E85C4A'},
+    CROSS_RECORD_CONFLICT: {label:'Cross-record conflict', color:'#E85C4A'},
+    PII: {label:'PII', color:'#E85C4A'},
+    PROXY: {label:'Proxy variable', color:'#9C8CE0'},
+  };
+  const STATUSES = ['Open','In review','Resolved','Escalated'];
+  const STATUS_COLOR = {
+    'Open':'#8CA0AC','In review':'#F0A83C','Resolved':'#59B37B','Escalated':'#E85C4A'
+  };
+
+  function keyFor(e){ return e.Sheet+'::'+e.Record_ID+'::'+e.Code; }
+
+  let reviews = {};
+  let saveTimer = null;
+
+  async function loadReviews(){
+    try{
+      const r = await window.storage.get('triage_reviews', false);
+      if(r && r.value) reviews = JSON.parse(r.value);
+    }catch(e){ reviews = {}; }
+    render();
+  }
+  function persist(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async ()=>{
+      try{ await window.storage.set('triage_reviews', JSON.stringify(reviews), false); }
+      catch(e){ console.error('storage failed', e); }
+    }, 250);
+  }
+
+  // ---------- filters state ----------
+  const state = { sheet:'ALL', code:'ALL', status:'ALL', search:'', expanded:null };
+
+  const sheets = Array.from(new Set(EXC.map(e=>e.Sheet))).sort();
+  const codes = Array.from(new Set(EXC.map(e=>e.Code))).sort();
+
+  const fSheet = document.getElementById('fSheet');
+  const fCode = document.getElementById('fCode');
+  const fStatus = document.getElementById('fStatus');
+  const fSearch = document.getElementById('fSearch');
+
+  fSheet.innerHTML = '<option value="ALL">All datasets</option>' + sheets.map(s=>`<option value="${s}">${s.replace(/_/g,' ')}</option>`).join('');
+  fCode.innerHTML = '<option value="ALL">All codes</option>' + codes.map(c=>`<option value="${c}">${CODE_META[c]?CODE_META[c].label:c}</option>`).join('');
+  fStatus.innerHTML = '<option value="ALL">All statuses</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
+
+  fSheet.onchange = ()=>{state.sheet=fSheet.value; render();};
+  fCode.onchange = ()=>{state.code=fCode.value; render();};
+  fStatus.onchange = ()=>{state.status=fStatus.value; render();};
+  fSearch.oninput = ()=>{state.search=fSearch.value.toLowerCase(); render();};
+  document.getElementById('btnReset').onclick = ()=>{
+    state.sheet='ALL';state.code='ALL';state.status='ALL';state.search='';
+    fSheet.value='ALL';fCode.value='ALL';fStatus.value='ALL';fSearch.value='';
+    render();
+  };
+  document.getElementById('btnExport').onclick = exportCSV;
+
+  // ---------- legend ----------
+  const legendEl = document.getElementById('legend');
+  legendEl.innerHTML = codes.map(c=>{
+    const m = CODE_META[c] || {label:c, color:'#8CA0AC'};
+    return `<span class="chip" data-code="${c}" style="color:${m.color}"><span class="sw" style="background:${m.color}"></span>${m.label}</span>`;
+  }).join('');
+  legendEl.querySelectorAll('.chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      const c = chip.dataset.code;
+      state.code = (state.code===c)?'ALL':c;
+      fCode.value = state.code;
+      render();
+    };
+  });
+
+  // ---------- rail ----------
+  function buildRail(){
+    const rail = document.getElementById('rail');
+    rail.innerHTML = EXC.map(e=>{
+      const m = CODE_META[e.Code] || {color:'#8CA0AC'};
+      const h = 6 + Math.random()*16;
+      return `<span class="tick" title="${e.Sheet} · ${e.Record_ID} · ${e.Code}" style="height:${h.toFixed(0)}px;background:${m.color}"></span>`;
+    }).join('');
+  }
+
+  // ---------- stats ----------
+  function buildStats(){
+    const total = EXC.length;
+    const uniqueRecords = new Set(EXC.map(e=>e.Sheet+'::'+e.Record_ID)).size;
+    const reviewedCount = Object.values(reviews).filter(r=>r.status && r.status!=='Open').length;
+    const escalated = Object.values(reviews).filter(r=>r.status==='Escalated').length;
+    const pct = total ? Math.round(100*reviewedCount/total) : 0;
+
+    document.getElementById('hdrTotal').textContent = total;
+
+    const cards = [
+      {v: total, k:'Total flags', sub: uniqueRecords+' unique records', accent:'#F0A83C'},
+      {v: sheets.length, k:'Datasets touched', sub:'of 9 operational sources', accent:'#3FB8B0'},
+      {v: pct+'%', k:'Triaged', sub: reviewedCount+' of '+total+' reviewed', accent:'#59B37B'},
+      {v: escalated, k:'Escalated', sub:'flagged for human data owner', accent:'#E85C4A'},
+    ];
+    document.getElementById('stats').innerHTML = cards.map(c=>
+      `<div class="stat" style="--accent:${c.accent}"><div class="v">${c.v}</div><div class="k">${c.k}</div><div class="sub">${c.sub}</div></div>`
+    ).join('');
+  }
+
+  // ---------- list ----------
+  function filtered(){
+    return EXC.filter(e=>{
+      if(state.sheet!=='ALL' && e.Sheet!==state.sheet) return false;
+      if(state.code!=='ALL' && e.Code!==state.code) return false;
+      const rv = reviews[keyFor(e)];
+      const st = rv && rv.status ? rv.status : 'Open';
+      if(state.status!=='ALL' && st!==state.status) return false;
+      if(state.search){
+        const hay = (e.Record_ID+' '+e.Issue+' '+(e.Detail||'')).toLowerCase();
+        if(!hay.includes(state.search)) return false;
+      }
+      return true;
+    });
+  }
+
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function render(){
+    buildStats();
+    const rows = filtered();
+    const listEl = document.getElementById('list');
+    if(!rows.length){
+      listEl.innerHTML = '<div class="empty">No exceptions match these filters.</div>';
+      return;
+    }
+    listEl.innerHTML = rows.map(e=>{
+      const k = keyFor(e);
+      const rv = reviews[k] || {};
+      const st = rv.status || 'Open';
+      const m = CODE_META[e.Code] || {label:e.Code, color:'#8CA0AC'};
+      const isOpen = state.expanded===k;
+      return `
+      <div class="row ${isOpen?'expanded':''}" data-key="${k}">
+        <div class="cell-sheet">${e.Sheet.replace(/_/g,' ')}</div>
+        <div class="cell-id">${e.Record_ID}</div>
+        <div><span class="code-pill" style="background:${m.color}22;color:${m.color}">${m.label}</span></div>
+        <div class="cell-issue">${escapeHtml(e.Issue)}${e.Detail?`<div class="detail">${escapeHtml(e.Detail)}</div>`:''}</div>
+        <div class="cell-status"><span class="status-pill" style="color:${STATUS_COLOR[st]};border-color:${STATUS_COLOR[st]}55">${st}</span></div>
+        <div class="detail-panel ${isOpen?'open':''}">
+          ${isOpen ? buildDetailPanel(e,k,rv) : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.row').forEach(row=>{
+      row.addEventListener('click', (ev)=>{
+        if(ev.target.closest('.detail-panel')) return;
+        const k = row.dataset.key;
+        state.expanded = (state.expanded===k) ? null : k;
+        render();
+      });
+    });
+    wireDetailControls();
+  }
+
+  function buildDetailPanel(e,k,rv){
+    return `
+      <div class="detail-grid">
+        <div>
+          <div class="field-lbl">Review status</div>
+          <select class="ctl-status" data-key="${k}">
+            ${STATUSES.map(s=>`<option value="${s}" ${((rv.status||'Open')===s)?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div class="field-lbl">Reviewer</div>
+          <input type="text" class="ctl-reviewer" data-key="${k}" value="${escapeHtml(rv.reviewer||'')}" placeholder="Your name / role">
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="field-lbl">Triage note</div>
+        <textarea class="ctl-note" data-key="${k}" placeholder="What did you check, and what's the resolution?">${escapeHtml(rv.note||'')}</textarea>
+      </div>
+      <div class="detail-actions">
+        <div style="font-size:10.5px;color:var(--dim)" class="mono">${rv.ts ? 'Last updated '+new Date(rv.ts).toLocaleString() : 'Not yet reviewed'}</div>
+        <span class="saved-tag" id="saved-${k.replace(/[^a-zA-Z0-9]/g,'')}">Saved</span>
+      </div>
+    `;
+  }
+
+  function wireDetailControls(){
+    document.querySelectorAll('.ctl-status').forEach(el=>{
+      el.addEventListener('change', ()=>updateReview(el.dataset.key, {status: el.value}));
+    });
+    document.querySelectorAll('.ctl-reviewer').forEach(el=>{
+      el.addEventListener('change', ()=>updateReview(el.dataset.key, {reviewer: el.value}));
+    });
+    document.querySelectorAll('.ctl-note').forEach(el=>{
+      el.addEventListener('change', ()=>updateReview(el.dataset.key, {note: el.value}));
+    });
+  }
+
+  function updateReview(key, patch){
+    reviews[key] = Object.assign({status:'Open', reviewer:'', note:''}, reviews[key]||{}, patch, {ts: Date.now()});
+    persist();
+    const tag = document.getElementById('saved-'+key.replace(/[^a-zA-Z0-9]/g,''));
+    if(tag){ tag.classList.add('show'); setTimeout(()=>tag.classList.remove('show'), 1200); }
+    // update just the pill + stats without full re-render jank on status change
+    buildStats();
+    const row = document.querySelector(`.row[data-key="${CSS.escape(key)}"] .status-pill`);
+    if(row){
+      const st = reviews[key].status;
+      row.textContent = st;
+      row.style.color = STATUS_COLOR[st];
+      row.style.borderColor = STATUS_COLOR[st]+'55';
+    }
+  }
+
+  function exportCSV(){
+    const rows = filtered();
+    const header = ['Sheet','Record_ID','Code','Issue','Detail','Status','Reviewer','Note','Last_Updated'];
+    const lines = [header.join(',')];
+    rows.forEach(e=>{
+      const rv = reviews[keyFor(e)] || {};
+      const cells = [e.Sheet, e.Record_ID, e.Code, e.Issue, e.Detail||'', rv.status||'Open', rv.reviewer||'', rv.note||'', rv.ts?new Date(rv.ts).toISOString():''];
+      lines.push(cells.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(','));
+    });
+    const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'project_signal_triage_export.csv';
+    a.click();
+  }
+
+  buildRail();
+  loadReviews();
+})();
+
+</script>
+</body>
+</html>
