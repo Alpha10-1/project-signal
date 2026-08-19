@@ -83,9 +83,25 @@ textarea#q:focus{border-color:var(--violet);}
 .sendbtn:hover{filter:brightness(1.1);}
 .sendbtn:disabled{opacity:.4;cursor:default;}
 .hint{font-size:10.5px;color:var(--dim);margin-top:8px;}
+.ps-suite-nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px;margin-bottom:14px;border-bottom:1px solid var(--line-soft);font-family:'IBM Plex Mono';}
+.ps-suite-wordmark{font-size:10.5px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase;}
+.ps-suite-links{display:flex;gap:18px;}
+.ps-suite-links a{font-size:11.5px;color:var(--dim);text-decoration:none;letter-spacing:.03em;text-transform:uppercase;padding-bottom:3px;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+.ps-suite-links a:hover{color:var(--text);}
+.ps-suite-links a.ps-current{color:var(--text);border-color:var(--amber);}
 </style>
 </head>
 <body>
+    <nav class="ps-suite-nav">
+      <span class="ps-suite-wordmark">PROJECT&nbsp;SIGNAL</span>
+      <span class="ps-suite-links">
+        <a href="project_signal_dashboard.html" data-app="dashboard">Dashboard</a>
+        <a href="project_signal_triage.html" data-app="triage">Triage</a>
+        <a href="project_signal_assistant.html" data-app="assistant" class="ps-current">Assistant</a>
+        <a href="project_signal_allocation.html" data-app="allocation">Allocation</a>
+      </span>
+    </nav>
+
   <header class="top">
     <div>
       <div class="eyebrow"><span class="dot"></span>PROJECT SIGNAL · TASK 3</div>
