@@ -8,7 +8,7 @@ This document records how AI tools were used in developing this submission and w
 |---|---|---|
 | `d53c21d` | Alpha10-1 | Initial commit: cleaning pipeline (`clean_project_signal.py`, `common.py`, `finalize_workbook.py`), first cleaned workbook, first Task 1 docx report |
 | `39ed82a` | Alpha10-1 | Added all four HTML apps (dashboard, triage, assistant, allocation) in one commit — 1,605 lines added |
-| `113d3ae` | Claude Assistant | Added cleaning-run lineage (version, timestamp, input hash), a Wilson-score confidence interval on the flagged-record rate, and fixed a hardcoded record-count constant in the dashboard that was silently understating flag density |
+| `113d3ae` | Claude Assistant | Added cleaning-run lineage (version, timestamp, input hash) and a Wilson-score confidence interval on the flagged-record rate. Also fixed a hardcoded record-count constant in the dashboard that was silently understating flag density — the candidate reports having independently caught this issue before this commit and requested the fix; the AI implemented it. |
 | `7efacc3` | Claude Assistant | Added a shared navigation bar across all four HTML apps; confirmed (without changing) that shared vs. personal browser-storage scoping was already correctly assigned per app |
 | `d862a3c` | Alpha10-1 | Removed the dashboard and allocation apps, keeping triage + assistant as the two submitted apps |
 | `f18403e` | Alpha10-1 | Added the untouched raw source workbook to the repo |

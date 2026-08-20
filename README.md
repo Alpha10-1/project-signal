@@ -14,7 +14,7 @@ each piece.
 | `scripts/common.py` | Shared date parser and equipment-name normaliser. |
 | `scripts/clean_project_signal.py` | Task 1 pipeline — one cleaning function per dataset, produces `project_signal_cleaned.xlsx`. |
 | `scripts/finalize_workbook.py` | Applies formatting and adds the `README`/`Data_Quality_Summary` cover tabs to the cleaned workbook. |
-| `scripts/project_signal_triage.html` | **Task 2 submission** — data-quality triage app. |
+| `scripts/project_signal_triage.html` | **Task 2 submission** — data-quality triage app (built-in Project Signal exceptions, plus upload-your-own-CSV scoring). |
 | `scripts/project_signal_assistant.html` | **Task 3 submission** — evidence-grounded assistant. |
 
 Task 2 and Task 3 each offered a choice of two deliverables. This submission
@@ -47,10 +47,19 @@ browser (double-click, or `open scripts/project_signal_triage.html`). It's a
 static, self-contained page with the exception data embedded, so it works
 offline with no server.
 
-What it does: shows every one of the 117 flagged records from
+What it does, by default: shows every one of the 117 flagged records from
 `Exception_Log`, filterable by issue type and sheet, with the detail behind
 each flag. Reviewers can annotate/clear flags and export the filtered set as
 CSV.
+
+**Upload your own CSV** using the "Upload CSV…" control at the top of the
+page to run the same triage workflow against any file: it produces a
+data-quality scorecard, missing-value analysis, duplicate detection,
+invalid-date detection, outlier warnings, and suggested corrections per
+flag, with a downloadable exception file (Export CSV). Click "Use built-in
+data" to switch back to the Project Signal exception set. Review
+annotations made on an uploaded file are session-only and don't overwrite
+the saved review state for the built-in dataset.
 
 ### Task 3 — evidence-grounded assistant
 
@@ -97,11 +106,12 @@ honest.
 Alongside this repo:
 
 - Data-quality report (`Project_Signal_Task1_Data_Quality_Report.docx`)
-- Testing evidence
-- Responsible-use note
-- AI usage log
-- Executive summary (one-pager)
-- Personal reflection
+- Testing evidence (`TESTING.md`)
+- Responsible-use note (`RESPONSIBLE_USE.md`)
+- AI usage log (`AI_USAGE_LOG.md`)
+- Executive summary (`EXECUTIVE_SUMMARY.md`)
+- Personal reflection (`PERSONAL_REFLECTION.md`)
+- Bonus scenario answers (`BONUS_SCENARIOS.md`)
 
 See the individual files for each of these.
 

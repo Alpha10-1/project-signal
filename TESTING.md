@@ -71,6 +71,41 @@ different machines will not see each other's review decisions unless they
 share the exported CSV. This is a reasonable limitation for a prototype but
 should be called out to whoever evaluates it operationally.
 
+## 2a. Task 2 — Generic CSV upload (`scripts/project_signal_triage.html`)
+
+The triage app also accepts any user-supplied CSV and runs the same
+scoring engine — missing-value analysis, duplicate detection, invalid-date
+detection, outlier warnings, suggested corrections, and a downloadable
+exception file — against it, per the Task 2 candidate brief.
+
+The parsing/detection engine (`parseCSV`, `parseDateFlexible`,
+`generateExceptionsFromCSV`) was extracted and unit-tested directly in
+Node against a synthetic 10-row CSV containing one instance of each issue
+type, before being exercised in-browser.
+
+| # | Test | Input | Expected | Actual | Result |
+|---|---|---|---|---|---|
+| 1 | CSV parsing with quoted, comma-containing field | `"normal, no issue"` in a Notes column | Field parsed as one value, comma not treated as a delimiter | Parsed correctly as a single field | Pass |
+| 2 | Exact duplicate row | Row 4 identical to row 2 | Flagged `CSV_DUP`, points to the earlier row number | Flagged, `Detail: "Identical to row 2"` | Pass |
+| 3 | Unparseable date | `not-a-date` in a date-named column | Flagged `CSV_DATE` | Flagged, `Detail: Value: "not-a-date"` | Pass |
+| 4 | Missing value | Empty cell in a `Value` column | Flagged `CSV_MISSING`, names the empty column | Flagged, `Detail: "Empty: Value"` | Pass |
+| 5 | Numeric outlier | `9999` against a column clustered around ~45 | Flagged `CSV_OUTLIER` via IQR bounds | Flagged, `Detail` reports expected range `[44.3, 46.3]` | Pass |
+| 6 | Clean rows (5 of 10) | Rows with no issues | Not flagged | 0 false positives across the 5 clean rows | Pass |
+| 7 | Scorecard summary | Full 10-row file | `rowCount`, `colCount`, `flaggedRows`, `pctFlagged` all correct | `{rowCount:10, colCount:4, flaggedRows:4, pctFlagged:40}` | Pass |
+| 8 | Upload mode does not affect built-in dataset | Upload a CSV, then click "Use built-in data" | Built-in 117-exception Project Signal set reappears unchanged, review state for it untouched | Confirmed — built-in dataset's saved reviews are stored under a separate key from uploaded-CSV session state, so switching modes never overwrites them | Pass |
+| 9 | Suggested corrections present | Any flagged row | Every exception includes a one-line `Suggested_Fix` shown in the detail panel and in CSV export | Confirmed for all four categories | Pass |
+| 10 | Downloadable exception file | Click Export CSV while in upload mode | CSV downloads with `Suggested_Fix` column included, filename `exception_report.csv` | Confirmed | Pass |
+
+**Known limitation:** date-column detection is heuristic (column name
+matching `date/time/start/end/timestamp`, or ≥60% of values parsing as a
+known date format) rather than user-specified. A date column with an
+unconventional header name and a low proportion of parseable values could
+be missed. Similarly, outlier detection only runs on columns where ≥85% of
+values are numeric — a numeric column with many missing values may not be
+classified as numeric and would skip outlier scoring. Neither was hit in
+testing but both are worth a person's awareness before trusting the
+scorecard on an unfamiliar file.
+
 ## 3. Task 3 — Assistant (`scripts/project_signal_assistant.html`)
 
 The assistant calls the Claude API to draft an answer, then independently
