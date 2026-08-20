@@ -89,6 +89,20 @@ textarea#q:focus{border-color:var(--violet);}
 .ps-suite-links a{font-size:11.5px;color:var(--dim);text-decoration:none;letter-spacing:.03em;text-transform:uppercase;padding-bottom:3px;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
 .ps-suite-links a:hover{color:var(--text);}
 .ps-suite-links a.ps-current{color:var(--text);border-color:var(--amber);}
+
+.keybar{border-bottom:1px solid var(--line);padding:10px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);}
+.keybar .klabel{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--dim);letter-spacing:.05em;text-transform:uppercase;}
+.keybar input{background:var(--panel2);border:1px solid var(--line);color:var(--text);font-family:'IBM Plex Mono';font-size:12px;
+  padding:6px 9px;border-radius:var(--radius);outline:none;width:280px;max-width:100%;}
+.keybar input:focus{border-color:var(--violet);}
+.keybar button{background:var(--violet);color:#161022;border:none;font-family:'IBM Plex Mono';font-weight:600;font-size:11px;
+  padding:7px 12px;border-radius:var(--radius);cursor:pointer;}
+.keybar button:hover{filter:brightness(1.1);}
+.keybar a{color:var(--teal);text-decoration:none;font-size:11px;}
+.keybar a:hover{text-decoration:underline;}
+.keybar .kstatus{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--green);display:flex;align-items:center;gap:6px;}
+.keybar .kstatus .p{width:6px;height:6px;border-radius:50%;background:var(--green);}
+.keybar .kchange{font-size:10.5px;color:var(--dim);text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;}
 </style>
 </head>
 <body>
@@ -107,6 +121,14 @@ textarea#q:focus{border-color:var(--violet);}
     </div>
     <div class="badge-live"><span class="p"></span>Answers grounded in the cleaned dataset only</div>
   </header>
+
+  <div class="keybar" id="keybar">
+    <span class="klabel">Gemini API Key</span>
+    <input type="password" id="apiKeyInput" placeholder="Paste your free Google AI Studio key…" autocomplete="off">
+    <button id="saveKeyBtn">Save</button>
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key →</a>
+    <span class="kstatus" id="keyStatus" style="display:none;"><span class="p"></span>Key saved <button class="kchange" id="changeKeyBtn">change</button></span>
+  </div>
 
   <div class="body-wrap">
     <aside>
@@ -205,6 +227,51 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
   const qEl = document.getElementById('q');
   const sendBtn = document.getElementById('sendBtn');
 
+  // ---------- Gemini API key management ----------
+  // This app calls Google's Gemini API directly from the browser, using a free
+  // AI Studio API key (https://aistudio.google.com/apikey — no credit card needed).
+  // The key is stored only in this browser's localStorage; it is never sent anywhere
+  // except directly to Google's API endpoint.
+  const KEY_STORAGE = 'ps_gemini_api_key';
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const saveKeyBtn = document.getElementById('saveKeyBtn');
+  const changeKeyBtn = document.getElementById('changeKeyBtn');
+  const keyStatus = document.getElementById('keyStatus');
+  const keybar = document.getElementById('keybar');
+
+  function getApiKey(){
+    try{ return localStorage.getItem(KEY_STORAGE) || ''; }catch(e){ return ''; }
+  }
+  function setApiKey(key){
+    try{ localStorage.setItem(KEY_STORAGE, key); }catch(e){ /* ignore */ }
+  }
+  function refreshKeyUI(){
+    const key = getApiKey();
+    if(key){
+      apiKeyInput.style.display = 'none';
+      saveKeyBtn.style.display = 'none';
+      keyStatus.style.display = 'flex';
+    } else {
+      apiKeyInput.style.display = '';
+      saveKeyBtn.style.display = '';
+      keyStatus.style.display = 'none';
+    }
+  }
+  saveKeyBtn.onclick = ()=>{
+    const v = apiKeyInput.value.trim();
+    if(!v) return;
+    setApiKey(v);
+    apiKeyInput.value = '';
+    refreshKeyUI();
+  };
+  apiKeyInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ saveKeyBtn.click(); } });
+  changeKeyBtn.onclick = ()=>{
+    setApiKey('');
+    refreshKeyUI();
+    apiKeyInput.focus();
+  };
+  refreshKeyUI();
+
   function addWelcome(){
     appendAssistantRaw("I can answer questions about equipment, delays, safety, shifts, training and maintenance in the Project Signal dataset — every answer comes with citations I verify myself before showing you. Ask me something, or try a suggestion on the left.", [], false, null, true);
   }
@@ -288,8 +355,20 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
   }
 
   // ---------- send ----------
+  const GEMINI_MODEL = 'gemini-2.5-flash';
+
   async function send(text){
     if(!text.trim()) return;
+    const apiKey = getApiKey();
+    if(!apiKey){
+      appendUser(text);
+      appendAssistantRaw('I need a free Gemini API key before I can answer. Paste one into the box at the top of the page — get one at aistudio.google.com/apikey, no payment required — then ask again.', [], false, null, false);
+      qEl.value = '';
+      keybar.scrollIntoView({behavior:'smooth', block:'center'});
+      apiKeyInput.focus();
+      return;
+    }
+
     appendUser(text);
     history.push({role:'user', content: text});
     qEl.value = '';
@@ -298,19 +377,35 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
     appendTyping();
 
     try{
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: RULES,
-          messages: history,
-        })
-      });
+      // Gemini's REST API uses "user"/"model" roles and a separate system_instruction field.
+      const contents = history.map(m=>({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: RULES }] },
+            contents,
+            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1000 }
+          })
+        }
+      );
       const data = await resp.json();
       removeTyping();
-      const textBlocks = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+
+      if(data.error){
+        throw new Error(data.error.message || 'Gemini API error');
+      }
+
+      const cand = (data.candidates && data.candidates[0]) || null;
+      const textBlocks = cand && cand.content && cand.content.parts
+        ? cand.content.parts.map(p=>p.text||'').join('\n')
+        : '';
+
       let parsed;
       try{
         const cleaned = textBlocks.replace(/```json|```/g,'').trim();
@@ -325,7 +420,11 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
       }
     }catch(e){
       removeTyping();
-      appendAssistantRaw('Something went wrong reaching the assistant backend. Please try again.', [], false, null, false);
+      const msg = (e && e.message) ? e.message : '';
+      const friendly = /API key not valid|API_KEY_INVALID/i.test(msg)
+        ? 'That Gemini API key was rejected — click "change" above and paste a valid free key from aistudio.google.com/apikey.'
+        : 'Something went wrong reaching the assistant backend. Please try again.';
+      appendAssistantRaw(friendly, [], false, null, false);
       console.error(e);
     }
     sendBtn.disabled = false;
