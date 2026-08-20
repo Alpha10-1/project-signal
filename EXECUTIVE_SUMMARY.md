@@ -41,7 +41,9 @@ exact record numbers, so whoever owns each source system can make the call.
    high downtime?" and shows exactly which records back up the answer. If
    it can't find enough evidence to answer safely, it says so instead of
    guessing. Questions that would require identifying or judging a specific
-   person are routed to a person to answer, not the assistant.
+   person are routed to a person to answer, not the assistant. It runs on a
+   free AI service (no cost to try it), but does need a free account key
+   pasted in on first use.
 
 ## What needs a decision before this goes further
 

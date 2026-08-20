@@ -74,11 +74,16 @@ it says so rather than guessing. Requests that need identity data not
 present in the cleaned dataset are routed to the human review queue rather
 than answered.
 
-> **Note:** this app calls the Claude API to generate answers, then checks
-> the response against the source records before displaying it — the
-> verification step is local and doesn't depend on the model being correct.
-> If you're running this outside an environment with API access configured,
-> the chat interface will load but won't return answers.
+> **Note:** this app calls Google's Gemini API (`gemini-3.6-flash`) directly
+> from the browser to generate answers, then checks the response against the
+> source records before displaying it — the verification step is local and
+> doesn't depend on the model being correct. It needs a free Gemini API key,
+> which you paste into the box at the top of the page (get one with no
+> payment required at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
+> The key is stored only in your browser's `localStorage` and is sent only
+> to Google's API endpoint — see `RESPONSIBLE_USE.md` for what that implies
+> about data handling on Google's free tier. Without a key entered, the chat
+> UI loads but prompts you to add one rather than silently failing.
 
 ## Why these two
 

@@ -44,7 +44,34 @@ This section covers a single focused session where I worked with AI assistance t
 | 7 | Had the AI draft `RESPONSIBLE_USE.md` | Directly inspected `project_signal_cleaned.xlsx` and confirmed it retains full unredacted PII; directly grepped both HTML apps' embedded datasets and confirmed no direct-identifier or proxy-variable fields (name, email, phone, badge, `Home_Zone`, `Contractor_Group`) are present in either | — |
 | 8 | Asked the AI to draft this file | — | I reviewed and edited the draft to reflect my actual involvement and decisions, ensuring it accurately represents what I did vs. what the AI contributed. |
 
-## 3. What I Still Need to Validate Before Submission
+## 3. Development Session — Free-Tier Backend Swap (Assistant)
+
+A separate, later session, after everything above was already in place: I
+asked whether a free API existed so the assistant app could be evaluated by
+a reviewer without anyone incurring an API cost. The AI recommended
+Google's Gemini API (free tier, no card required) and I asked it to make
+the swap.
+
+| # | What I requested / what the AI did | What I personally verified | What I decided / action taken |
+|---|---|---|---|
+| 1 | Asked for free API alternatives to a paid model API | Reviewed the AI's comparison (Gemini, Groq, OpenRouter) and the trade-offs it raised (rate limits, request/response format differences, free-tier data-use terms) | Chose Gemini for context size and answer quality |
+| 2 | Had the AI rewrite the assistant's backend call from Claude's API to Gemini's, including an in-page field for a user-supplied API key | Ran the app myself after the change | Found it returned a 404 — the model ID the AI used (`gemini-2.5-flash`) had been retired for new users in the time since the AI's training data. Reported this back with the console error. |
+| 3 | Asked the AI to fix the 404 | Re-ran the app | AI corrected the model ID to the current free-tier model. Also independently caught and fixed an unrelated bug it noticed: the shared nav bar's "current page" link pointed at its own filename, which browsers block when running the file directly from disk — I hadn't noticed this one myself, it showed up as a console warning the AI explained |
+| 4 | Asked a real aggregation question ("which truck lost the most time to delays") to test it | Read the actual response — it was garbled, mid-calculation text, not a real answer | Reported the exact broken output back to the AI rather than assuming it was a one-off glitch |
+| 5 | Asked the AI to diagnose and fix the garbled-answer issue | Re-tested the same question | AI identified the root cause (the model's internal reasoning tokens were exhausting the output budget before finishing the JSON) and added token-budget and truncation-detection changes | 
+| 6 | Re-tested after that fix | Got a `400 Bad Request` this time, different failure | Reported the new error text verbatim | AI identified this as a separate, unrelated API contract issue (a deprecated parameter name for the newer model generation) and fixed it |
+| 7 | Re-tested again | Same garbled-answer symptom as #4 recurred on the multi-truck comparison question specifically | Reported this immediately rather than treating the earlier fix as sufficient | AI widened the token budget further and changed the reasoning-effort setting; I re-tested and confirmed the fix held |
+| 8 | Asked the AI to update this log, `README.md`, `RESPONSIBLE_USE.md`, and `TESTING.md` to reflect the backend swap accurately | Read every changed section myself | Accepted the drafts after confirming they matched what actually happened in this session, including keeping the *un*successful intermediate attempts visible in `TESTING.md` rather than only recording the final working state |
+
+**Why I'm keeping the failed intermediate attempts in this log and in
+`TESTING.md`, not just the final fix:** a submission that only shows things
+working can't be told apart from one where the failures were never
+disclosed. The 404, the two separate 400/truncation bugs, and the fact that
+the first truncation fix didn't fully hold are all real parts of how this
+integration got built, and I think that's more credible than a log that
+only shows a clean path to success.
+
+## 4. What I Still Need to Validate Before Submission
 
 To be transparent about what remains to be done:
 
@@ -52,17 +79,24 @@ To be transparent about what remains to be done:
 - [ ] **Proofread `README.md`, `TESTING.md`, and `RESPONSIBLE_USE.md`** in full. These were AI-drafted and I've reviewed them, but I want to do one final read-through for accuracy and clarity.
 - [ ] **Ensure no stray copies of the earlier four-app version exist** in local directories or branches. What I submit must be unambiguously the two-app version described in the README.
 - [ ] **Prepare for interview questions** about the `Alpha10-1` commits. I should be ready to speak to specifics: which AI tool generated the initial code, what I changed after reviewing it, and what my test runs actually caught. The detail is what makes this credible.
+- [ ] **Re-test the Gemini backend swap with a fresh, never-used API key** on a machine that hasn't already hit any free-tier rate limits, to confirm the fixes in `TESTING.md` §3a hold outside my own development session.
 
-## 4. Models and Tools Used
+## 5. Models and Tools Used
 
 | Component | Tool/Model | Version | Notes |
 |---|---|---|---|
 | Initial code generation (pipeline + apps) | Claude Sonnet 5 | 2025‑01‑15 (or latest available at time) | Used in early development sessions; I reviewed all output before committing |
 | Later enhancements (Wilson interval, nav bar) | Claude Sonnet 5 | Same as above | Used in chat-with-code-execution environment; I reviewed all changes |
+| Backend swap (Claude API → free Gemini API) in the assistant app | Claude Sonnet 5 | Same as above | The coding assistant used to make this change; the assistant *app itself* now calls Google's Gemini API (`gemini-3.6-flash`) at runtime as its own separate AI backend — see §3 above and `TESTING.md` §3a |
 | Development environment | VS Code with Python 3.12 | — | All testing and development done locally |
 | Libraries used | pandas, openpyxl, numpy, datetime, re, json | See `requirements.txt` | — |
 
-I used Claude Sonnet 5 exclusively for all AI‑assisted parts of this project. I did not use any other AI coding tools.
+I used Claude Sonnet 5 exclusively as my coding assistant for all AI‑assisted
+parts of this project. Note the distinction: Claude Sonnet 5 is the tool I
+worked with to build and fix this repo; Google's Gemini API is what the
+submitted assistant app itself calls at runtime to answer a reviewer's
+questions. These are two different things — one is how the software was
+built, the other is what the shipped software runs on.
 
 ---
 

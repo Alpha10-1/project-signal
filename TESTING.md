@@ -108,11 +108,11 @@ scorecard on an unfamiliar file.
 
 ## 3. Task 3 — Assistant (`scripts/project_signal_assistant.html`)
 
-The assistant calls the Claude API to draft an answer, then independently
-re-checks every cited record ID against the actual dataset before showing
-the answer (`verify()` / `INDEX` lookup) — the tests below focus on that
-verification behaviour, since that's the governance-relevant part, rather
-than on LLM output quality in general.
+The assistant calls Google's Gemini API (`gemini-3.6-flash`) to draft an
+answer, then independently re-checks every cited record ID against the
+actual dataset before showing the answer (`verify()` / `INDEX` lookup) — the
+tests below focus on that verification behaviour, since that's the
+governance-relevant part, rather than on LLM output quality in general.
 
 | # | Test | Prompt | Expected | Actual | Result |
 |---|---|---|---|---|---|
@@ -134,12 +134,37 @@ output directly. Anyone extending this assistant should keep that
 verification step in place rather than treating the model's citations as
 trustworthy on their own.
 
-**Known limitation:** the assistant depends on live API access
-(`api.anthropic.com`) to generate answers. It has no offline fallback — if
-API access isn't configured in the environment it's opened in, the chat UI
-loads but returns no answers. This is noted in the README as well.
+**Known limitation:** the assistant depends on live API access to Google's
+Gemini API (`generativelanguage.googleapis.com`) and a user-supplied free
+API key. It has no offline fallback — without a key entered, the chat UI
+loads and prompts for one rather than returning answers. This is noted in
+the README as well.
 
-## 4. What was *not* tested
+## 3a. Backend swap — Gemini API integration (`scripts/project_signal_assistant.html`)
+
+The assistant originally called the Claude API. It was switched to Google's
+free-tier Gemini API so the app can be run and evaluated by anyone without
+an API cost. This surfaced several real integration bugs, caught through
+actual use rather than anticipated in advance:
+
+| # | Issue found | How it was found | Fix | Result |
+|---|---|---|---|---|
+| 1 | `gemini-2.5-flash` returned 404 — retired for new users | Ran the app after the swap and asked a real question | Switched model ID to `gemini-3.6-flash` (current free-tier Flash model) | Pass |
+| 2 | Cross-app nav bar's "current page" link pointed at its own filename; browsers block a `file://` page from navigating to itself, throwing a console security warning | Same run, browser console | Replaced the self-referencing `<a href>` with a non-navigating `<span aria-current="page">`, same visual styling, in both `project_signal_assistant.html` and `project_signal_triage.html` | Pass |
+| 3 | Aggregation questions ("which truck lost the most time to delays") returned garbled, half-finished text — raw arithmetic scratch-work instead of a finished sentence | Asked exactly that question; the returned "answer" was literally mid-calculation, unusable | Root cause: the model's internal "thinking" tokens were consuming the output budget before the final JSON could complete (`finishReason: MAX_TOKENS`). Added `thinkingConfig`, raised `maxOutputTokens`, and — critically — added code that detects a truncated/invalid response and shows a clear "the answer got cut off, try narrowing your question" message rather than ever displaying raw/partial model text as if it were a real answer | Pass |
+| 4 | `400 Bad Request: Request contains an invalid argument` | Re-tested after fix #3 | Gemini 3.x replaced the numeric `thinkingBudget` field with a `thinkingLevel` string enum; sending the old field name to a 3.x model is rejected. Switched to `thinkingConfig: { thinkingLevel: ... }` | Pass |
+| 5 | Truncation (same symptom as #3) still occurred on multi-truck comparison questions even after #3/#4 | Re-tested the same "which truck lost the most" question again | The retry ceiling (8,192 tokens) and `thinkingLevel: 'low'` still wasn't enough headroom for a question requiring aggregation across many records. Dropped to `thinkingLevel: 'minimal'` (with an automatic fallback to `'low'` if a later multi-turn call is ever rejected for a missing thought signature) and raised the retry ceiling to 24,576 tokens | Pass |
+
+**Why this table matters more than a simple pass/fail list:** none of these
+five issues were predicted up front — each was only found by actually asking
+the assistant real questions and reading what came back, including one case
+(#3) where the first "fix" attempt was insufficient and needed a second
+pass (#5) once retested. That's the process this repo is trying to be
+honest about: AI-assisted implementation, human-triggered testing, and
+iteration based on what testing actually showed rather than what the
+implementation was assumed to do.
+
+
 
 In the interest of being honest about scope for a time-boxed prototype:
 

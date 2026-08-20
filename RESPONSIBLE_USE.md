@@ -40,6 +40,25 @@ matters for the "Reveal 5: Data leakage" scenario in the brief: the design
 already avoids sending raw personal data to an external AI service, which is
 the failure mode that scenario describes.
 
+**This backend runs on Google's free Gemini API (`gemini-3.6-flash`)
+rather than a paid API**, so it can be evaluated without anyone incurring a
+cost. This is a real trade-off, not just an implementation detail:
+
+- The reviewer (or anyone running the app) supplies their own free API key,
+  entered in the browser and stored only in that browser's `localStorage`.
+  It is sent directly to Google's endpoint and nowhere else, but it is a
+  personal credential — the same handling care as any API key applies (don't
+  share the page's saved state, don't commit a key to source control).
+- Google's documented free-tier terms permit use of free-tier traffic to
+  improve their products. Even though only the de-identified extract is
+  sent (no direct identifiers, no `Home_Zone`/`Contractor_Group`), the
+  pseudonymous `Operator_ID`-style values and free-text fields still leave
+  this environment under different terms than a paid/enterprise API
+  agreement would provide. If this moved beyond a prototype demo, that
+  question — whose data-use terms the assistant's calls fall under — would
+  need a deliberate answer from whoever owns the deployment, not an
+  inherited default from development.
+
 ## Fairness
 
 The Task 1 report (§5.2) flags `Home_Zone` and `Contractor_Group` as proxy
@@ -77,11 +96,14 @@ opt-in checkbox added later.
   reasonable limitation for a prototype but means the "who reviewed what"
   trail is not currently tamper-evident or centrally auditable — see
   Limitations below.
-- The assistant depends on a live call to `api.anthropic.com`. If this were
+- The assistant depends on a live call to Google's Gemini API
+  (`generativelanguage.googleapis.com`), authenticated with a free API key
+  the user supplies and that stays in browser `localStorage`. If this were
   deployed beyond a demo, that call would need to go through whatever
   logging, rate-limiting, and access-control layer the organisation
-  normally puts in front of an external API — none of that exists in this
-  prototype.
+  normally puts in front of an external API — and the free-tier key would
+  need replacing with a properly governed, organisation-owned credential —
+  none of that exists in this prototype.
 
 ## Transparency
 
@@ -128,8 +150,10 @@ opt-in checkbox added later.
   path would need to be built and the decision of who gets which version
   formally owned by someone.
 - Triage app review state is local to one browser/machine (see Security).
-- The assistant has no offline fallback — without API access it loads but
-  cannot answer questions.
+- The assistant has no offline fallback — without a Gemini API key entered
+  it loads but prompts for one rather than answering. It also inherits
+  Google's free-tier rate limits (requests per minute/day); this is
+  sufficient for demo/reviewer use but not for production traffic volume.
 - No automated regression test suite exists yet; all testing was manual and
   is recorded in `TESTING.md`. The pipeline's parsing/normalisation
   functions are pure functions and would be the easiest place to start if
