@@ -153,6 +153,28 @@ h1.title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:28px;l
 
 .empty{padding:40px;text-align:center;color:var(--dim);font-size:13px;}
 
+/* ---------- upload ---------- */
+.upload-wrap{display:flex;align-items:center;gap:10px;}
+.upload-label{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-family:'IBM Plex Mono',monospace;font-size:12px;padding:7px 12px;border-radius:var(--radius);
+  cursor:pointer;transition:.15s;display:inline-block;
+}
+.upload-label:hover{border-color:var(--amber);color:var(--amber);}
+.upload-label input{display:none;}
+.mode-badge{
+  font-family:'IBM Plex Mono';font-size:10.5px;color:var(--dim);padding:4px 0;
+}
+.mode-badge b{color:var(--teal);}
+.mode-badge.uploaded b{color:var(--amber);}
+.scorecard-note{
+  background:var(--panel);border:1px solid var(--amber-dim);border-left:3px solid var(--amber);
+  border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--muted);line-height:1.6;
+  display:none;
+}
+.scorecard-note.show{display:block;}
+.scorecard-note b{color:var(--text);}
+
 footer.note{margin-top:24px;padding-top:16px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.6;}
 footer.note b{color:var(--muted);}
 .ps-suite-nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px;margin-bottom:14px;border-bottom:1px solid var(--line-soft);font-family:'IBM Plex Mono';}
@@ -177,7 +199,7 @@ footer.note b{color:var(--muted);}
     <div>
       <div class="eyebrow"><span class="dot"></span>PROJECT SIGNAL · TASK 2</div>
       <h1 class="title">Data Quality Triage</h1>
-      <div class="subtitle">Every exception raised during cleaning, in one queue. Review, annotate, and clear each flag before the record feeds any downstream tool.</div>
+      <div class="subtitle">Every exception raised during cleaning, in one queue. Review, annotate, and clear each flag before the record feeds any downstream tool. Upload any CSV above to run the same scorecard against your own file.</div>
     </div>
     <div class="headright">
       <div class="num" id="hdrTotal">—</div>
@@ -188,6 +210,18 @@ footer.note b{color:var(--muted);}
   <div class="rail" id="rail"></div>
 
   <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <span class="lbl">Data</span>
+    <div class="upload-wrap">
+      <label class="upload-label" for="csvUpload">Upload CSV…</label>
+      <input type="file" id="csvUpload" accept=".csv,text/csv">
+      <span class="mode-badge" id="modeBadge">Showing <b>built-in</b> Project Signal exceptions</span>
+      <button class="btn" id="btnUseBuiltin" style="display:none;">Use built-in data</button>
+    </div>
+  </div>
+
+  <div class="scorecard-note" id="scorecardNote"></div>
 
   <div class="controls">
     <span class="lbl">Filter</span>
@@ -217,8 +251,10 @@ footer.note b{color:var(--muted);}
 <script>
 (function(){
   const RAW = JSON.parse(document.getElementById('triage-data').textContent);
-  const EXC = RAW.exceptions; // {Sheet, Record_ID, Code, Issue, Detail}
-  const SUMMARY = RAW.summary;
+  let EXC = RAW.exceptions; // {Sheet, Record_ID, Code, Issue, Detail, Suggested_Fix?}
+  let SUMMARY = RAW.summary;
+  let mode = 'builtin'; // 'builtin' | 'uploaded'
+  let uploadInfo = null; // {filename, rowCount, colCount}
 
   const CODE_META = {
     DUP: {label:'Duplicate', color:'#8CA0AC'},
@@ -234,6 +270,15 @@ footer.note b{color:var(--muted);}
     PII: {label:'PII', color:'#E85C4A'},
     PROXY: {label:'Proxy variable', color:'#9C8CE0'},
   };
+  // Extra codes used only for generic uploaded-CSV scoring (kept separate
+  // from the Project Signal-specific codes above so the built-in exception
+  // taxonomy doesn't get diluted with generic labels).
+  Object.assign(CODE_META, {
+    CSV_MISSING: {label:'Missing values', color:'#5B9BD5'},
+    CSV_DUP: {label:'Duplicate row', color:'#8CA0AC'},
+    CSV_DATE: {label:'Invalid date', color:'#F0A83C'},
+    CSV_OUTLIER: {label:'Outlier', color:'#E85C4A'},
+  });
   const STATUSES = ['Open','In review','Resolved','Escalated'];
   const STATUS_COLOR = {
     'Open':'#8CA0AC','In review':'#F0A83C','Resolved':'#59B37B','Escalated':'#E85C4A'
@@ -244,17 +289,27 @@ footer.note b{color:var(--muted);}
   let reviews = {};
   let saveTimer = null;
 
+  function reviewsKey(){
+    // Uploaded-CSV review state is session-only (not persisted) so it
+    // never overwrites the saved reviews for the built-in Project Signal
+    // exception set. Only the built-in dataset's triage decisions persist
+    // across reloads.
+    return 'triage_reviews';
+  }
+
   async function loadReviews(){
+    if(mode==='uploaded'){ reviews = {}; render(); return; }
     try{
-      const r = await window.storage.get('triage_reviews', false);
+      const r = await window.storage.get(reviewsKey(), false);
       if(r && r.value) reviews = JSON.parse(r.value);
     }catch(e){ reviews = {}; }
     render();
   }
   function persist(){
+    if(mode==='uploaded') return; // session-only, see reviewsKey()
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async ()=>{
-      try{ await window.storage.set('triage_reviews', JSON.stringify(reviews), false); }
+      try{ await window.storage.set(reviewsKey(), JSON.stringify(reviews), false); }
       catch(e){ console.error('storage failed', e); }
     }, 250);
   }
@@ -262,17 +317,36 @@ footer.note b{color:var(--muted);}
   // ---------- filters state ----------
   const state = { sheet:'ALL', code:'ALL', status:'ALL', search:'', expanded:null };
 
-  const sheets = Array.from(new Set(EXC.map(e=>e.Sheet))).sort();
-  const codes = Array.from(new Set(EXC.map(e=>e.Code))).sort();
+  let sheets = [];
+  let codes = [];
 
   const fSheet = document.getElementById('fSheet');
   const fCode = document.getElementById('fCode');
   const fStatus = document.getElementById('fStatus');
   const fSearch = document.getElementById('fSearch');
+  const legendEl = document.getElementById('legend');
 
-  fSheet.innerHTML = '<option value="ALL">All datasets</option>' + sheets.map(s=>`<option value="${s}">${s.replace(/_/g,' ')}</option>`).join('');
-  fCode.innerHTML = '<option value="ALL">All codes</option>' + codes.map(c=>`<option value="${c}">${CODE_META[c]?CODE_META[c].label:c}</option>`).join('');
-  fStatus.innerHTML = '<option value="ALL">All statuses</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
+  function refreshFilters(){
+    sheets = Array.from(new Set(EXC.map(e=>e.Sheet))).sort();
+    codes = Array.from(new Set(EXC.map(e=>e.Code))).sort();
+
+    fSheet.innerHTML = '<option value="ALL">All datasets</option>' + sheets.map(s=>`<option value="${s}">${s.replace(/_/g,' ')}</option>`).join('');
+    fCode.innerHTML = '<option value="ALL">All codes</option>' + codes.map(c=>`<option value="${c}">${CODE_META[c]?CODE_META[c].label:c}</option>`).join('');
+    fStatus.innerHTML = '<option value="ALL">All statuses</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
+
+    legendEl.innerHTML = codes.map(c=>{
+      const m = CODE_META[c] || {label:c, color:'#8CA0AC'};
+      return `<span class="chip" data-code="${c}" style="color:${m.color}"><span class="sw" style="background:${m.color}"></span>${m.label}</span>`;
+    }).join('');
+    legendEl.querySelectorAll('.chip').forEach(chip=>{
+      chip.onclick = ()=>{
+        const c = chip.dataset.code;
+        state.code = (state.code===c)?'ALL':c;
+        fCode.value = state.code;
+        render();
+      };
+    });
+  }
 
   fSheet.onchange = ()=>{state.sheet=fSheet.value; render();};
   fCode.onchange = ()=>{state.code=fCode.value; render();};
@@ -284,21 +358,6 @@ footer.note b{color:var(--muted);}
     render();
   };
   document.getElementById('btnExport').onclick = exportCSV;
-
-  // ---------- legend ----------
-  const legendEl = document.getElementById('legend');
-  legendEl.innerHTML = codes.map(c=>{
-    const m = CODE_META[c] || {label:c, color:'#8CA0AC'};
-    return `<span class="chip" data-code="${c}" style="color:${m.color}"><span class="sw" style="background:${m.color}"></span>${m.label}</span>`;
-  }).join('');
-  legendEl.querySelectorAll('.chip').forEach(chip=>{
-    chip.onclick = ()=>{
-      const c = chip.dataset.code;
-      state.code = (state.code===c)?'ALL':c;
-      fCode.value = state.code;
-      render();
-    };
-  });
 
   // ---------- rail ----------
   function buildRail(){
@@ -313,19 +372,30 @@ footer.note b{color:var(--muted);}
   // ---------- stats ----------
   function buildStats(){
     const total = EXC.length;
-    const uniqueRecords = new Set(EXC.map(e=>e.Sheet+'::'+e.Record_ID)).size;
-    const reviewedCount = Object.values(reviews).filter(r=>r.status && r.status!=='Open').length;
-    const escalated = Object.values(reviews).filter(r=>r.status==='Escalated').length;
-    const pct = total ? Math.round(100*reviewedCount/total) : 0;
-
     document.getElementById('hdrTotal').textContent = total;
 
-    const cards = [
-      {v: total, k:'Total flags', sub: uniqueRecords+' unique records', accent:'#F0A83C'},
-      {v: sheets.length, k:'Datasets touched', sub:'of 9 operational sources', accent:'#3FB8B0'},
-      {v: pct+'%', k:'Triaged', sub: reviewedCount+' of '+total+' reviewed', accent:'#59B37B'},
-      {v: escalated, k:'Escalated', sub:'flagged for human data owner', accent:'#E85C4A'},
-    ];
+    let cards;
+    if(mode==='uploaded' && uploadInfo){
+      const s = SUMMARY;
+      const reviewedCount = Object.values(reviews).filter(r=>r.status && r.status!=='Open').length;
+      cards = [
+        {v: s.rowCount, k:'Rows scanned', sub: s.colCount+' columns', accent:'#3FB8B0'},
+        {v: total, k:'Total flags', sub: s.flaggedRows+' rows affected', accent:'#F0A83C'},
+        {v: s.pctFlagged+'%', k:'Rows flagged', sub:'data-quality score: '+(100-s.pctFlagged)+'% clean', accent: s.pctFlagged>25 ? '#E85C4A' : '#59B37B'},
+        {v: reviewedCount, k:'Triaged this session', sub:'not saved between visits', accent:'#9C8CE0'},
+      ];
+    } else {
+      const uniqueRecords = new Set(EXC.map(e=>e.Sheet+'::'+e.Record_ID)).size;
+      const reviewedCount = Object.values(reviews).filter(r=>r.status && r.status!=='Open').length;
+      const escalated = Object.values(reviews).filter(r=>r.status==='Escalated').length;
+      const pct = total ? Math.round(100*reviewedCount/total) : 0;
+      cards = [
+        {v: total, k:'Total flags', sub: uniqueRecords+' unique records', accent:'#F0A83C'},
+        {v: sheets.length, k:'Datasets touched', sub:'of 9 operational sources', accent:'#3FB8B0'},
+        {v: pct+'%', k:'Triaged', sub: reviewedCount+' of '+total+' reviewed', accent:'#59B37B'},
+        {v: escalated, k:'Escalated', sub:'flagged for human data owner', accent:'#E85C4A'},
+      ];
+    }
     document.getElementById('stats').innerHTML = cards.map(c=>
       `<div class="stat" style="--accent:${c.accent}"><div class="v">${c.v}</div><div class="k">${c.k}</div><div class="sub">${c.sub}</div></div>`
     ).join('');
@@ -403,6 +473,11 @@ footer.note b{color:var(--muted);}
           <input type="text" class="ctl-reviewer" data-key="${k}" value="${escapeHtml(rv.reviewer||'')}" placeholder="Your name / role">
         </div>
       </div>
+      ${e.Suggested_Fix ? `
+      <div style="margin-top:12px;">
+        <div class="field-lbl">Suggested correction</div>
+        <div style="font-size:12.5px;color:var(--muted);line-height:1.5;">${escapeHtml(e.Suggested_Fix)}</div>
+      </div>` : ''}
       <div style="margin-top:12px;">
         <div class="field-lbl">Triage note</div>
         <textarea class="ctl-note" data-key="${k}" placeholder="What did you check, and what's the resolution?">${escapeHtml(rv.note||'')}</textarea>
@@ -444,20 +519,261 @@ footer.note b{color:var(--muted);}
 
   function exportCSV(){
     const rows = filtered();
-    const header = ['Sheet','Record_ID','Code','Issue','Detail','Status','Reviewer','Note','Last_Updated'];
+    const header = ['Sheet','Record_ID','Code','Issue','Detail','Suggested_Fix','Status','Reviewer','Note','Last_Updated'];
     const lines = [header.join(',')];
     rows.forEach(e=>{
       const rv = reviews[keyFor(e)] || {};
-      const cells = [e.Sheet, e.Record_ID, e.Code, e.Issue, e.Detail||'', rv.status||'Open', rv.reviewer||'', rv.note||'', rv.ts?new Date(rv.ts).toISOString():''];
+      const cells = [e.Sheet, e.Record_ID, e.Code, e.Issue, e.Detail||'', e.Suggested_Fix||'', rv.status||'Open', rv.reviewer||'', rv.note||'', rv.ts?new Date(rv.ts).toISOString():''];
       lines.push(cells.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(','));
     });
     const blob = new Blob([lines.join('\n')], {type:'text/csv'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'project_signal_triage_export.csv';
+    a.download = mode==='uploaded' ? 'exception_report.csv' : 'project_signal_triage_export.csv';
     a.click();
   }
 
+  // ============================================================
+  // Generic CSV upload: scorecard, missing/duplicate/date/outlier
+  // detection, suggested corrections, downloadable exception file.
+  // ============================================================
+
+  // Minimal RFC4180-ish CSV parser: handles quoted fields, embedded
+  // commas/newlines, and doubled "" escapes. No external dependency,
+  // so the file stays self-contained and works offline.
+  function parseCSV(text){
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for(let i=0;i<text.length;i++){
+      const c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i++; }
+          else inQuotes = false;
+        } else field += c;
+      } else {
+        if(c === '"') inQuotes = true;
+        else if(c === ','){ row.push(field); field = ''; }
+        else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+        else if(c === '\r'){ /* skip, \n handles the line break */ }
+        else field += c;
+      }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    // drop trailing blank line
+    while(rows.length && rows[rows.length-1].length===1 && rows[rows.length-1][0]==='') rows.pop();
+    return rows;
+  }
+
+  // Flexible date parser covering the same format families the Task 1
+  // pipeline handles: ISO, slash-separated, US 12hr AM/PM, and
+  // day-first 24hr. Returns a Date or null.
+  function parseDateFlexible(raw){
+    if(raw==null) return null;
+    const s = String(raw).trim();
+    if(!s) return null;
+    let m;
+    // ISO: 2026-07-01 or 2026-07-01 09:00[:00]
+    if(m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/)){
+      const d = new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+      return isNaN(d) ? null : d;
+    }
+    // Slash ISO-order: 2026/07/01 09:00
+    if(m = s.match(/^(\d{4})\/(\d{2})\/(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/)){
+      const d = new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+      return isNaN(d) ? null : d;
+    }
+    // US with AM/PM: 07/01/2026 09:00 AM
+    if(m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2}) ?(AM|PM|am|pm)$/)){
+      let h = +m[4] % 12; if(/pm/i.test(m[6])) h += 12;
+      const d = new Date(+m[3], +m[1]-1, +m[2], h, +m[5]);
+      return isNaN(d) ? null : d;
+    }
+    // Day-first 24hr: 01/07/2026 09:00 (assume DD/MM/YYYY, the pipeline's convention)
+    if(m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?: (\d{1,2}):(\d{2}))?$/)){
+      const d = new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0));
+      return isNaN(d) ? null : d;
+    }
+    return null;
+  }
+
+  function isNumericCol(values){
+    const nonEmpty = values.filter(v=>String(v).trim()!=='');
+    if(nonEmpty.length < 3) return false;
+    const numCount = nonEmpty.filter(v=>!isNaN(parseFloat(v)) && isFinite(v)).length;
+    return numCount / nonEmpty.length >= 0.85;
+  }
+
+  function isDateCol(header, values){
+    if(/date|time|start|end|timestamp/i.test(header)) return true;
+    const nonEmpty = values.filter(v=>String(v).trim()!=='');
+    if(nonEmpty.length < 3) return false;
+    const dateLike = nonEmpty.filter(v=>parseDateFlexible(v)!==null).length;
+    return dateLike / nonEmpty.length >= 0.6;
+  }
+
+  function generateExceptionsFromCSV(headers, dataRows){
+    const exceptions = [];
+    const n = dataRows.length;
+    const rowFlagged = new Set();
+
+    // Column classification
+    const colValues = headers.map((h,ci)=>dataRows.map(r=>r[ci]!==undefined?r[ci]:''));
+    const dateCols = headers.map((h,ci)=>isDateCol(h, colValues[ci]));
+    const numCols = headers.map((h,ci)=>!dateCols[ci] && isNumericCol(colValues[ci]));
+
+    // ---- Missing values (per row, consolidated across columns) ----
+    dataRows.forEach((row,ri)=>{
+      const missingCols = [];
+      headers.forEach((h,ci)=>{
+        const v = row[ci];
+        if(v===undefined || String(v).trim()==='') missingCols.push(h);
+      });
+      if(missingCols.length){
+        exceptions.push({
+          Sheet:'Uploaded CSV', Record_ID:'ROW_'+(ri+2), Code:'CSV_MISSING',
+          Issue:`${missingCols.length} missing value${missingCols.length>1?'s':''}`,
+          Detail:`Empty: ${missingCols.join(', ')}`,
+          Suggested_Fix:'Fill from source system, or exclude this row from analysis if the missing field is required.'
+        });
+        rowFlagged.add(ri);
+      }
+    });
+
+    // ---- Exact duplicate rows ----
+    const seen = new Map();
+    dataRows.forEach((row,ri)=>{
+      const key = row.join('\u0001');
+      if(seen.has(key)){
+        exceptions.push({
+          Sheet:'Uploaded CSV', Record_ID:'ROW_'+(ri+2), Code:'CSV_DUP',
+          Issue:'Exact duplicate row',
+          Detail:`Identical to row ${seen.get(key)+2}`,
+          Suggested_Fix:'Remove one of the duplicate rows before analysis.'
+        });
+        rowFlagged.add(ri);
+      } else seen.set(key, ri);
+    });
+
+    // ---- Invalid dates ----
+    headers.forEach((h,ci)=>{
+      if(!dateCols[ci]) return;
+      dataRows.forEach((row,ri)=>{
+        const v = row[ci];
+        if(v===undefined || String(v).trim()==='') return; // already covered by missing-value check
+        if(parseDateFlexible(v)===null){
+          exceptions.push({
+            Sheet:'Uploaded CSV', Record_ID:'ROW_'+(ri+2), Code:'CSV_DATE',
+            Issue:`Unparseable date in "${h}"`,
+            Detail:`Value: "${v}"`,
+            Suggested_Fix:'Standardise to ISO format (YYYY-MM-DD HH:MM) or confirm the intended format.'
+          });
+          rowFlagged.add(ri);
+        }
+      });
+    });
+
+    // ---- Outliers (IQR-based, per numeric column) ----
+    headers.forEach((h,ci)=>{
+      if(!numCols[ci]) return;
+      const nums = dataRows.map((row,ri)=>({ri, v: parseFloat(row[ci])})).filter(x=>!isNaN(x.v));
+      if(nums.length < 5) return;
+      const sorted = nums.map(x=>x.v).slice().sort((a,b)=>a-b);
+      const q = p => sorted[Math.floor(p*(sorted.length-1))];
+      const q1 = q(0.25), q3 = q(0.75), iqr = q3-q1;
+      const lo = q1 - 1.5*iqr, hi = q3 + 1.5*iqr;
+      nums.forEach(({ri,v})=>{
+        if(v < lo || v > hi){
+          exceptions.push({
+            Sheet:'Uploaded CSV', Record_ID:'ROW_'+(ri+2), Code:'CSV_OUTLIER',
+            Issue:`Outlier in "${h}"`,
+            Detail:`Value ${v} is outside the expected range [${lo.toFixed(1)}, ${hi.toFixed(1)}] for this column`,
+            Suggested_Fix:'Verify against source; confirm units are consistent for this column before treating as a genuine outlier.'
+          });
+          rowFlagged.add(ri);
+        }
+      });
+    });
+
+    return {
+      exceptions,
+      summary:{
+        rowCount:n, colCount:headers.length,
+        flaggedRows:rowFlagged.size,
+        pctFlagged: n ? Math.round(100*rowFlagged.size/n) : 0,
+      }
+    };
+  }
+
+  function renderScorecard(){
+    const note = document.getElementById('scorecardNote');
+    if(mode!=='uploaded' || !uploadInfo){ note.classList.remove('show'); return; }
+    note.classList.add('show');
+    const s = SUMMARY;
+    note.innerHTML = `<b>Data-quality scorecard — ${escapeHtml(uploadInfo.filename)}</b><br>
+      ${s.rowCount} rows × ${s.colCount} columns scanned ·
+      <b>${s.pctFlagged}%</b> of rows have at least one issue
+      (${s.flaggedRows} of ${s.rowCount}) ·
+      ${EXC.length} total flags across missing values, duplicates, invalid dates, and outliers.
+      Each flag below includes a suggested correction. Use Export CSV for the downloadable exception file.`;
+  }
+
+  function setModeBuiltin(){
+    mode = 'builtin';
+    EXC = RAW.exceptions;
+    SUMMARY = RAW.summary;
+    uploadInfo = null;
+    document.getElementById('modeBadge').innerHTML = 'Showing <b>built-in</b> Project Signal exceptions';
+    document.getElementById('modeBadge').classList.remove('uploaded');
+    document.getElementById('btnUseBuiltin').style.display = 'none';
+    state.sheet='ALL';state.code='ALL';state.status='ALL';state.search='';state.expanded=null;
+    fSheet.value='ALL';fCode.value='ALL';fStatus.value='ALL';fSearch.value='';
+    refreshFilters();
+    renderScorecard();
+    loadReviews(); // also calls render()
+  }
+
+  function setModeUploaded(filename, headers, dataRows){
+    const result = generateExceptionsFromCSV(headers, dataRows);
+    mode = 'uploaded';
+    EXC = result.exceptions;
+    SUMMARY = result.summary;
+    uploadInfo = { filename, rowCount:result.summary.rowCount, colCount:result.summary.colCount };
+    document.getElementById('modeBadge').innerHTML = `Showing <b>uploaded</b> file: ${escapeHtml(filename)}`;
+    document.getElementById('modeBadge').classList.add('uploaded');
+    document.getElementById('btnUseBuiltin').style.display = '';
+    reviews = {}; // session-only for uploaded data, see reviewsKey()
+    state.sheet='ALL';state.code='ALL';state.status='ALL';state.search='';state.expanded=null;
+    refreshFilters();
+    fSheet.value='ALL';fCode.value='ALL';fStatus.value='ALL';fSearch.value='';
+    renderScorecard();
+    render();
+  }
+
+  document.getElementById('csvUpload').addEventListener('change', (ev)=>{
+    const file = ev.target.files && ev.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const rows = parseCSV(String(reader.result));
+        if(!rows.length){ alert('That file appears to be empty.'); return; }
+        const headers = rows[0].map(h=>h.trim());
+        const dataRows = rows.slice(1).filter(r=>r.length>1 || (r[0]||'').trim()!=='');
+        setModeUploaded(file.name, headers, dataRows);
+      }catch(e){
+        console.error(e);
+        alert('Could not parse this file as CSV. Check it is a plain-text, comma-separated file.');
+      }
+    };
+    reader.readAsText(file);
+  });
+  document.getElementById('btnUseBuiltin').addEventListener('click', ()=>{
+    document.getElementById('csvUpload').value = '';
+    setModeBuiltin();
+  });
+
+  refreshFilters();
   buildRail();
   loadReviews();
 })();
