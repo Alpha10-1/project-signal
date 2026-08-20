@@ -86,9 +86,9 @@ textarea#q:focus{border-color:var(--violet);}
 .ps-suite-nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px;margin-bottom:14px;border-bottom:1px solid var(--line-soft);font-family:'IBM Plex Mono';}
 .ps-suite-wordmark{font-size:10.5px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase;}
 .ps-suite-links{display:flex;gap:18px;}
-.ps-suite-links a{font-size:11.5px;color:var(--dim);text-decoration:none;letter-spacing:.03em;text-transform:uppercase;padding-bottom:3px;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+.ps-suite-links a,.ps-suite-links span{font-size:11.5px;color:var(--dim);text-decoration:none;letter-spacing:.03em;text-transform:uppercase;padding-bottom:3px;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
 .ps-suite-links a:hover{color:var(--text);}
-.ps-suite-links a.ps-current{color:var(--text);border-color:var(--amber);}
+.ps-suite-links .ps-current{color:var(--text);border-color:var(--amber);cursor:default;}
 
 .keybar{border-bottom:1px solid var(--line);padding:10px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);}
 .keybar .klabel{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--dim);letter-spacing:.05em;text-transform:uppercase;}
@@ -110,7 +110,7 @@ textarea#q:focus{border-color:var(--violet);}
       <span class="ps-suite-wordmark">PROJECT&nbsp;SIGNAL</span>
       <span class="ps-suite-links">
         <a href="project_signal_triage.html" data-app="triage">Triage</a>
-        <a href="project_signal_assistant.html" data-app="assistant" class="ps-current">Assistant</a>
+        <span data-app="assistant" class="ps-current" aria-current="page">Assistant</span>
       </span>
     </nav>
 
@@ -212,7 +212,7 @@ Hard rules — follow all of them:
 5. Direct personal identifiers (names, emails, phone numbers, certificate numbers) were already redacted before this dataset reached you. Only pseudonymous Operator_ID / Employee_ID / Reporter_ID / Observed_Person_ID values remain. Never guess, infer, or reconstruct a person's real identity from an ID or from Home_Zone / Contractor_Group.
 6. If a question asks you to identify, rank, blame, discipline, or make an employment/compliance/reward decision about a specific individual, OR asks you to use Home_Zone / Contractor_Group as a reason for a decision about a person, set review_required=true, decline the underlying request in "answer", and explain in "review_reason" that it needs a human data owner or supervisor with proper authority and context — do not attempt a "safe" partial version of it.
 7. If a question asks for PII not present in this dataset (a name, contact detail, etc.), set review_required=true and explain in "answer" that identity data was redacted at the source and isn't available to this assistant.
-8. Keep answers concise and specific — reference actual values (dates, durations, counts) from the dataset, not vague summaries.
+8. Keep answers concise and specific — reference actual values (dates, durations, counts) from the dataset, not vague summaries.\n9. The \"answer\" field must contain only your final, complete sentence(s) — never raw arithmetic, running totals, per-record scratch-work, or partial reasoning (e.g. do not write things like \"45 + 30\" or \"total = ...\" as the visible output). Do the addition yourself and state only the finished result and what it means.\n10. When summing or comparing a field such as Duration_Minutes across records, first check each record's Exception_Flags. If any record flagged OUTLIER or CROSS_RECORD_CONFLICT would distort a total or ranking, do not silently fold it into the sum — report the total both ways (with and without the flagged record) or state the total excluding it, and explain why it was set aside.
 
 Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching exactly this shape:
 {"answer": "string", "evidence": ["RECORD_ID", "..."], "review_required": true or false, "review_reason": "string or null"}
@@ -355,7 +355,54 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
   }
 
   // ---------- send ----------
-  const GEMINI_MODEL = 'gemini-2.5-flash';
+  const GEMINI_MODEL = 'gemini-3.6-flash';
+
+  async function callGemini(apiKey, contents, maxOutputTokens, thinkingLevel){
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: RULES }] },
+          contents,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            maxOutputTokens,
+            thinkingConfig: { thinkingLevel }
+          }
+        })
+      }
+    );
+    const data = await resp.json();
+    if(data.error){
+      throw new Error(data.error.message || 'Gemini API error');
+    }
+    const cand = (data.candidates && data.candidates[0]) || null;
+    const finishReason = cand && cand.finishReason;
+    const textBlocks = cand && cand.content && cand.content.parts
+      ? cand.content.parts.map(p=>p.text||'').join('\n')
+      : '';
+    return { textBlocks, finishReason };
+  }
+
+  function tryParse(textBlocks){
+    let cleaned = textBlocks.replace(/```json|```/g,'').trim();
+    let parsed;
+    try{
+      parsed = JSON.parse(cleaned);
+    }catch(e){
+      // Some responses wrap the JSON in stray prose despite responseMimeType.
+      // Pull out the first {...} block and try again before giving up.
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if(!match) throw e;
+      parsed = JSON.parse(match[0]);
+    }
+    if(typeof parsed.answer !== 'string' || !parsed.answer.trim()){
+      throw new Error('missing answer field');
+    }
+    return parsed;
+  }
 
   async function send(text){
     if(!text.trim()) return;
@@ -382,36 +429,43 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       }));
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: RULES }] },
-            contents,
-            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1000 }
-          })
+
+      // Try progressively larger output budgets. Most answers finish comfortably
+      // within the first budget; only widen it if the model actually ran out of
+      // room (finishReason === 'MAX_TOKENS'), and never show the user a partial/
+      // truncated generation as if it were a real answer.
+      const budgets = [4096, 12288, 24576];
+      let thinkingLevel = 'minimal';
+      let textBlocks = '', finishReason = null;
+      for(const budget of budgets){
+        let result;
+        try{
+          result = await callGemini(apiKey, contents, budget, thinkingLevel);
+        }catch(e){
+          // 'minimal' thinking can require a thought-signature on later turns
+          // in multi-turn conversations; if the API rejects it on that basis,
+          // drop to 'low' (no signature requirement) and retry this budget once.
+          if(/thought signature/i.test((e&&e.message)||'') && thinkingLevel==='minimal'){
+            thinkingLevel = 'low';
+            result = await callGemini(apiKey, contents, budget, thinkingLevel);
+          } else {
+            throw e;
+          }
         }
-      );
-      const data = await resp.json();
-      removeTyping();
-
-      if(data.error){
-        throw new Error(data.error.message || 'Gemini API error');
+        textBlocks = result.textBlocks;
+        finishReason = result.finishReason;
+        if(finishReason !== 'MAX_TOKENS') break;
       }
-
-      const cand = (data.candidates && data.candidates[0]) || null;
-      const textBlocks = cand && cand.content && cand.content.parts
-        ? cand.content.parts.map(p=>p.text||'').join('\n')
-        : '';
+      removeTyping();
 
       let parsed;
       try{
-        const cleaned = textBlocks.replace(/```json|```/g,'').trim();
-        parsed = JSON.parse(cleaned);
+        parsed = tryParse(textBlocks);
       }catch(e){
-        parsed = {answer: textBlocks || 'The assistant returned an unreadable response — please try rephrasing.', evidence:[], review_required:false, review_reason:null};
+        const reason = finishReason === 'MAX_TOKENS'
+          ? 'The answer kept running long even after retrying with more room — try asking about a narrower time range, a single truck, or a more specific question.'
+          : 'The assistant returned a response that wasn\'t valid — please try rephrasing your question.';
+        parsed = {answer: reason, evidence:[], review_required:false, review_reason:null};
       }
       history.push({role:'assistant', content: textBlocks});
       appendAssistantRaw(parsed.answer, parsed.evidence||[], !!parsed.review_required, parsed.review_reason, false);
