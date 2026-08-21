@@ -328,17 +328,40 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
   }
 
   // ---------- review queue (shared across app users) ----------
+  // window.storage is only provided inside the Claude.ai artifact sandbox.
+  // Opened as a plain file — the deployment this app is actually built for,
+  // now that it calls Gemini directly with a user-supplied key — window.storage
+  // is undefined, so a bare call throws and every escalation silently fails
+  // to log. Fall back to localStorage (same mechanism already used for the
+  // API key above) so the review queue actually persists in a real browser.
+  // Note: the localStorage fallback is per-browser, not shared across users
+  // the way window.storage(..., shared=true) is — see RESPONSIBLE_USE.md.
+  const RQ_LOCAL_KEY = 'ps_assistant_review_queue';
+  async function reviewStorageGet(){
+    if(window.storage && typeof window.storage.get === 'function'){
+      try{ return await window.storage.get('review_queue', true); }catch(e){ /* fall through */ }
+    }
+    try{
+      const raw = localStorage.getItem(RQ_LOCAL_KEY);
+      return raw === null ? null : { key:'review_queue', value: raw, shared:false };
+    }catch(e){ return null; }
+  }
+  async function reviewStorageSet(value){
+    if(window.storage && typeof window.storage.set === 'function'){
+      try{ return await window.storage.set('review_queue', value, true); }catch(e){ /* fall through */ }
+    }
+    localStorage.setItem(RQ_LOCAL_KEY, value);
+  }
   async function logReview(question, reason){
     try{
-      const key = 'review_queue';
       let list = [];
       try{
-        const r = await window.storage.get(key, true);
+        const r = await reviewStorageGet();
         if(r && r.value) list = JSON.parse(r.value);
       }catch(e){ list = []; }
       list.unshift({question, reason, ts: Date.now()});
       list = list.slice(0, 30);
-      await window.storage.set(key, JSON.stringify(list), true);
+      await reviewStorageSet(JSON.stringify(list));
       renderReviewQueue(list);
     }catch(e){ console.error('review log failed', e); }
   }
@@ -349,7 +372,7 @@ Output ONLY valid JSON (no markdown fences, no prose outside the JSON) matching 
   }
   async function loadReviewQueue(){
     try{
-      const r = await window.storage.get('review_queue', true);
+      const r = await reviewStorageGet();
       if(r && r.value) renderReviewQueue(JSON.parse(r.value));
     }catch(e){ /* empty queue */ }
   }

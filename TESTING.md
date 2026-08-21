@@ -71,6 +71,21 @@ different machines will not see each other's review decisions unless they
 share the exported CSV. This is a reasonable limitation for a prototype but
 should be called out to whoever evaluates it operationally.
 
+**Bug found and fixed (persistence in a real standalone browser):**
+`loadReviews`/`persist` originally called `window.storage` directly with no
+fallback. `window.storage` is only provided inside the Claude.ai artifact
+sandbox — opened as a plain file, exactly how this README tells a reviewer
+to run the app, `window.storage` is `undefined`, so the write silently threw
+and was swallowed by the existing `try/catch`. Test #7's "Pass" above was
+recorded from the artifact-preview environment, not from a real standalone
+browser, and did not catch this. Confirmed with a headless-browser test
+(Playwright, no `window.storage` present): setting a record's status to
+"Resolved" and reloading the page reverted it to "Open," with a console
+error (`Cannot read properties of undefined (reading 'set')`). Fixed by
+adding a `storageGet`/`storageSet` helper that tries `window.storage` first
+and falls back to `localStorage` otherwise — re-ran the same test after the
+fix: status now survives a real reload with no console error.
+
 ## 2a. Task 2 — Generic CSV upload (`scripts/project_signal_triage.html`)
 
 The triage app also accepts any user-supplied CSV and runs the same
@@ -139,6 +154,23 @@ Gemini API (`generativelanguage.googleapis.com`) and a user-supplied free
 API key. It has no offline fallback — without a key entered, the chat UI
 loads and prompts for one rather than returning answers. This is noted in
 the README as well.
+
+**Bug found and fixed (human-review queue silently failed to persist):**
+the escalation banner (test #4 above) rendered correctly on its own, but the
+`review_queue` it's supposed to feed — the actual governance artifact a
+human reviewer would check later — was written with a bare `window.storage`
+call and no fallback. Same root cause as the Task 2 bug above: outside the
+Claude.ai artifact sandbox, `window.storage` is `undefined`, so every
+escalation silently failed to log (caught by the existing `try/catch`,
+logged only to the console) even though the API key itself is already
+stored via plain `localStorage` a few lines above in the same file.
+Confirmed with a mocked-API headless-browser test: an escalated question
+showed the review banner correctly, but the sidebar review queue and
+`localStorage` were both empty, with a console error
+(`Cannot read properties of undefined (reading 'set')`). Fixed with the same
+`window.storage`-then-`localStorage` fallback pattern used in Task 2; the
+same test now shows the escalation both rendered and present in the queue
+after a page reload, with no console error.
 
 ## 3a. Backend swap — Gemini API integration (`scripts/project_signal_assistant.html`)
 

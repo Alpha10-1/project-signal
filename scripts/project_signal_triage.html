@@ -286,6 +286,32 @@ footer.note b{color:var(--muted);}
 
   function keyFor(e){ return e.Sheet+'::'+e.Record_ID+'::'+e.Code; }
 
+  // ---------- storage helper (window.storage where available, localStorage
+  // fallback otherwise) ----------
+  // window.storage is only provided inside the Claude.ai artifact sandbox.
+  // Opened as a plain file — which is exactly how the README tells a
+  // reviewer to run this app — window.storage is undefined, so a bare
+  // window.storage.get/set call throws and silently drops every review
+  // decision on the next reload. Fall back to localStorage so persistence
+  // actually works in a real standalone browser too.
+  const LOCAL_PREFIX = 'ps_triage_';
+  async function storageGet(key){
+    if(window.storage && typeof window.storage.get === 'function'){
+      try{ return await window.storage.get(key, false); }catch(e){ /* fall through */ }
+    }
+    try{
+      const raw = localStorage.getItem(LOCAL_PREFIX+key);
+      return raw === null ? null : { key, value: raw, shared:false };
+    }catch(e){ return null; }
+  }
+  async function storageSet(key, value){
+    if(window.storage && typeof window.storage.set === 'function'){
+      try{ return await window.storage.set(key, value, false); }catch(e){ /* fall through */ }
+    }
+    try{ localStorage.setItem(LOCAL_PREFIX+key, value); return { key, value, shared:false }; }
+    catch(e){ throw e; }
+  }
+
   let reviews = {};
   let saveTimer = null;
 
@@ -300,7 +326,7 @@ footer.note b{color:var(--muted);}
   async function loadReviews(){
     if(mode==='uploaded'){ reviews = {}; render(); return; }
     try{
-      const r = await window.storage.get(reviewsKey(), false);
+      const r = await storageGet(reviewsKey());
       if(r && r.value) reviews = JSON.parse(r.value);
     }catch(e){ reviews = {}; }
     render();
@@ -309,7 +335,7 @@ footer.note b{color:var(--muted);}
     if(mode==='uploaded') return; // session-only, see reviewsKey()
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async ()=>{
-      try{ await window.storage.set(reviewsKey(), JSON.stringify(reviews), false); }
+      try{ await storageSet(reviewsKey(), JSON.stringify(reviews)); }
       catch(e){ console.error('storage failed', e); }
     }, 250);
   }
