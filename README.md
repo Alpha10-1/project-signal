@@ -31,14 +31,16 @@ Requires Python 3 with `pandas`, `numpy`, and `openpyxl`.
 cd scripts
 pip install pandas numpy openpyxl
 python3 clean_project_signal.py ../project_signal_raw.xlsx ../project_signal_cleaned.xlsx
-python3 finalize_workbook.py ../project_signal_cleaned.xlsx
+python3 finalize_workbook.py ../project_signal_cleaned.xlsx ../project_signal_cleaned.xlsx
 ```
 
 The first command runs the exception-detection and cleaning rules and writes
-the raw/cleaned/exception sheets. The second applies formatting and adds the
-cover sheets. `project_signal_cleaned.xlsx` in this repo is the already-built
-output — you only need to re-run this if you change the source data or the
-cleaning rules.
+the raw/cleaned/exception sheets. The second takes an input path and an
+output path (`finalize_workbook.py <in.xlsx> <out.xlsx>`) and applies
+formatting plus the cover sheets; running it against its own output, as
+above, finalises the workbook in place. `project_signal_cleaned.xlsx` in
+this repo is the already-built output — you only need to re-run this if you
+change the source data or the cleaning rules.
 
 ### Task 2 — data-quality triage app
 
